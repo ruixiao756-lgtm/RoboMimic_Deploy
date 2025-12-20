@@ -53,8 +53,8 @@ class WbtDance(FSMState):
         self.name_str = "wbt_dance"
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(current_dir, "config", "WbtDance.yaml")
-        with open(config_path, "r") as f:
+        self.config_path = os.path.join(current_dir, "config", "WbtDance.yaml")  # save for hot reload
+        with open(self.config_path, "r") as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
 
         self.onnx_path = os.path.join(current_dir, "model", config["onnx_path"])
@@ -122,7 +122,29 @@ class WbtDance(FSMState):
         self.kds_lab = self.fallback.joint_damping
         self.action_scale_lab = self.fallback.action_scale
 
+    def _reload_config(self) -> None:
+        """Hot reload fallback parameters from YAML config (called on enter)."""
+        try:
+            with open(self.config_path, "r") as f:
+                config = yaml.load(f, Loader=yaml.FullLoader)
+            fb = config.get("fallback", {})
+            self.fallback = _FallbackParams(
+                default_joint_pos=np.array(fb.get("default_joint_pos", [0.0] * 29), dtype=np.float32),
+                joint_stiffness=np.array(fb.get("joint_stiffness", [20.0] * 29), dtype=np.float32),
+                joint_damping=np.array(fb.get("joint_damping", [1.0] * 29), dtype=np.float32),
+                action_scale=np.array(fb.get("action_scale", [0.25] * 29), dtype=np.float32),
+            )
+            # If not using ONNX metadata, update lab arrays from reloaded fallback
+            if not self.use_onnx_metadata:
+                self._use_fallback()
+            print(f"[WbtDance] Config reloaded from {self.config_path}")
+        except Exception as e:
+            print(f"[WbtDance] Failed to reload config: {e}")
+
     def enter(self):
+        # Hot reload config from YAML on every enter (enables parameter tuning without restart)
+        self._reload_config()
+
         self.counter_step = 0
 
         # warmup one step to fetch ref motion outputs
