@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.absolute()))
+from common.keyboard_joystick import get_joystick
 
 from common.path_config import PROJECT_ROOT
 
@@ -12,7 +13,7 @@ import yaml
 import os
 from common.ctrlcomp import *
 from FSM.FSM import *
-from common.utils import get_gravity_orientation
+from common.utils import get_gravity_orientation, FSMCommand, FSMStateName
 from common.joystick import JoyStick, JoystickButton
 
 
@@ -44,36 +45,77 @@ if __name__ == "__main__":
     policy_output = PolicyOutput(num_joints)
     FSM_controller = FSM(state_cmd, policy_output)
     
-    joystick = JoyStick()
+    joystick = get_joystick()
     Running = True
     with mujoco.viewer.launch_passive(m, d) as viewer:
         sim_start_time = time.time()
         while viewer.is_running() and Running:
+            step_start = time.time()
             try:
-                if(joystick.is_button_pressed(JoystickButton.SELECT)):
+                # 必须先更新输入状态
+                joystick.update()
+                
+                # 终止程序（按下 SELECT）
+                if joystick.is_button_just_pressed(JoystickButton.SELECT):
                     Running = False
 
-                joystick.update()
-                if joystick.is_button_released(JoystickButton.L3):
+                # 更灵敏的触发：使用按下边缘 (just_pressed)
+                if joystick.is_button_just_pressed(JoystickButton.L3):
                     state_cmd.skill_cmd = FSMCommand.PASSIVE
-                if joystick.is_button_released(JoystickButton.START):
+                    print(">>> 切换到: PASSIVE 阻尼保护模式")
+                if joystick.is_button_just_pressed(JoystickButton.START):
                     state_cmd.skill_cmd = FSMCommand.POS_RESET
-                if joystick.is_button_released(JoystickButton.A) and joystick.is_button_pressed(JoystickButton.R1):
+                    print(">>> 切换到: POS_RESET 位控模式")
+
+                # LOCO: R1 + A
+                if joystick.is_button_just_pressed(JoystickButton.A) and joystick.is_button_pressed(JoystickButton.R1):
                     state_cmd.skill_cmd = FSMCommand.LOCO
-                if joystick.is_button_released(JoystickButton.X) and joystick.is_button_pressed(JoystickButton.R1):
-                    state_cmd.skill_cmd = FSMCommand.SKILL_1
-                if joystick.is_button_released(JoystickButton.Y) and joystick.is_button_pressed(JoystickButton.R1):
-                    state_cmd.skill_cmd = FSMCommand.SKILL_2
-                if joystick.is_button_released(JoystickButton.B) and joystick.is_button_pressed(JoystickButton.R1):
-                    state_cmd.skill_cmd = FSMCommand.SKILL_3
-                if joystick.is_button_released(JoystickButton.Y) and joystick.is_button_pressed(JoystickButton.L1):
-                    state_cmd.skill_cmd = FSMCommand.SKILL_4
+                    print(">>> 切换到: LOCO 行走模式")
+
+                # SKILL_1 (Dance): R1 + X
+                if joystick.is_button_just_pressed(JoystickButton.X) and joystick.is_button_pressed(JoystickButton.R1):
+                    # 如果当前就是 Dance，则重启该策略；否则发起切换
+                    if FSM_controller.cur_policy.name == FSMStateName.SKILL_Dance:
+                        FSM_controller.cur_policy.exit()
+                        FSM_controller.cur_policy.enter()
+                        print(">>> 重新启动: SKILL_1 舞蹈模式")
+                    else:
+                        state_cmd.skill_cmd = FSMCommand.SKILL_1
+                        print(">>> 切换到: SKILL_1 舞蹈模式")
+
+                # SKILL_2 (KungFu): R1 + Y
+                if joystick.is_button_just_pressed(JoystickButton.Y) and joystick.is_button_pressed(JoystickButton.R1):
+                    if FSM_controller.cur_policy.name == FSMStateName.SKILL_KungFu:
+                        FSM_controller.cur_policy.exit()
+                        FSM_controller.cur_policy.enter()
+                        print(">>> 重新启动: SKILL_2 武术模式")
+                    else:
+                        state_cmd.skill_cmd = FSMCommand.SKILL_2
+                        print(">>> 切换到: SKILL_2 武术模式")
+
+                # SKILL_3 (WBT_DANCE/Kick): R1 + B
+                if joystick.is_button_just_pressed(JoystickButton.B) and joystick.is_button_pressed(JoystickButton.R1):
+                    if FSM_controller.cur_policy.name == FSMStateName.SKILL_WBT_DANCE:
+                        FSM_controller.cur_policy.exit()
+                        FSM_controller.cur_policy.enter()
+                        print(">>> 重新启动: SKILL_3 WBT_DANCE")
+                    else:
+                        state_cmd.skill_cmd = FSMCommand.SKILL_3
+                        print(">>> 切换到: SKILL_3 WBT_DANCE (whole_body_tracking 导出策略)")
+
+                # SKILL_4 (WBT_DANCE variant): L1 + Y
+                if joystick.is_button_just_pressed(JoystickButton.Y) and joystick.is_button_pressed(JoystickButton.L1):
+                    if FSM_controller.cur_policy.name == FSMStateName.SKILL_WBT_DANCE:
+                        FSM_controller.cur_policy.exit()
+                        FSM_controller.cur_policy.enter()
+                        print(">>> 重新启动: SKILL_4 WBT_DANCE")
+                    else:
+                        state_cmd.skill_cmd = FSMCommand.SKILL_4
+                        print(">>> 切换到: SKILL_4 WBT_DANCE (whole_body_tracking 导出策略)")
                 
                 state_cmd.vel_cmd[0] = -joystick.get_axis_value(1)
                 state_cmd.vel_cmd[1] = -joystick.get_axis_value(0)
                 state_cmd.vel_cmd[2] = -joystick.get_axis_value(3)
-                
-                step_start = time.time()
                 
                 tau = pd_control(policy_output_action, d.qpos[7:], kps, np.zeros_like(kps), d.qvel[6:], kds)
                 d.ctrl[:] = tau

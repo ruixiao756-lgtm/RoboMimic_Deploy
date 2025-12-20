@@ -1,0 +1,249 @@
+# ==========================================
+# WbtDance 策略部署配置 - 参数调优指南
+# ==========================================
+# 原参数来源：从 ONNX 模型元数据自动提取
+# 当前策略特点：相对保守，稳定性强，但动作可能略显滞后
+#
+# ==================== 参数调优指南 ====================
+#
+# 1. joint_stiffness (kp) - 关节刚度
+#    ┌─ 降低数值的影响：
+#    │  • 关节更柔顺，动作更流畅，抖动减少
+#    │  • 对外界扰动的抗性降低，易摔倒（MuJoCo模拟推力时）
+#    │  • 跟踪精度下降，可能无法精准执行快速动作
+#    │
+#    └─ 提高数值的影响：
+#       • 关节更硬，动作更刚性，抖动增加
+#       • 对外界扰动的抗性提高，稳定性更好
+#       • 消耗更多能量，可能触发关节限制告警
+#
+#    当前值评估：保守 → 激进调整建议
+#    • 保守(稳定优先)：乘以 0.7-0.8  (如 99.098 → 70-80)
+#    • 平衡：保持现状 (99.098)
+#    • 激进(精度优先)：乘以 1.2-1.5  (如 99.098 → 120-150)
+#    • 极端激进：乘以 2.0+  (如 99.098 → 200+，风险高)
+#
+# 2. joint_damping (kd) - 关节阻尼
+#    ┌─ 降低数值的影响：
+#    │  • 阻尼减少，动作响应更快，但易产生振荡
+#    │  • 高速运动时不稳定，可能产生左右摇晃
+#    │
+#    └─ 提高数值的影响：
+#       • 阻尼增加，振荡衰减快，运动更稳定
+#       • 但会延缓运动响应，动作变"肉"
+#       • 过高会导致关节跟不上目标位置
+#
+#    当前值评估：中等 → 激进调整建议
+#    • 保守(防振荡)：乘以 1.2-1.5  (如 6.309 → 7.5-9.5)
+#    • 平衡：保持现状 (6.309)
+#    • 激进(快速响应)：乘以 0.7-0.8  (如 6.309 → 4.4-5.0)
+#    • 极端激进：乘以 0.5  (如 6.309 → 3.15，需谨慎测试)
+#
+# 3. action_scale - 动作幅度缩放
+#    ┌─ 降低数值的影响：
+#    │  • 关节运动幅度减小，动作更"缩手缩脚"
+#    │  • 激烈动作（跳跃、旋转）性能下降
+#    │  • 摔倒风险降低（运动范围受限）
+#    │
+#    └─ 提高数值的影响：
+#       • 关节运动幅度增大，动作更夸张
+#       • 激烈动作表现更好，但易失控
+#       • 可能触发关节物理限制（工作空间外）
+#
+#    当前值评估：中等保守 → 激进调整建议
+#    # 双腿关节 (hip/knee): 0.548/0.351
+#    • 保守：乘以 0.8  (0.548 → 0.44, 0.351 → 0.28)
+#    • 平衡：保持现状  (0.548, 0.351)
+#    • 激进：乘以 1.2-1.3  (0.548 → 0.65-0.71, 0.351 → 0.42-0.46)
+#    • 极端激进：乘以 1.5+  (0.548 → 0.82+)
+#
+#    # 手臂/手腕关节: 0.439/0.075
+#    • 保守：乘以 0.7  (0.439 → 0.31, 0.075 → 0.05)
+#    • 平衡：保持现状  (0.439, 0.075)
+#    • 激进：乘以 1.3-1.5  (0.439 → 0.57-0.66, 0.075 → 0.10-0.11)
+#
+# ==================== 综合调参策略 ====================
+#
+# 场景 1: 动作太"肉"，跟踪滞后
+#   → 降低 kd (阻尼)，提高 kp (刚度)，提高 action_scale
+#   推荐: kd × 0.8, kp × 1.2, action_scale × 1.2
+#
+# 场景 2: 动作抖动厉害，易摔倒
+#   → 提高 kd (阻尼)，降低 kp (刚度)，降低 action_scale
+#   推荐: kd × 1.3, kp × 0.8, action_scale × 0.9
+#
+# 场景 3: 原数据保守，要更激进表现
+#   → 小幅提高 kp，小幅降低 kd，适度提高 action_scale
+#   推荐: kp × 1.1-1.2, kd × 0.9-1.0, action_scale × 1.1-1.2
+#
+# 场景 4: 只想加强某些部位的表现
+#   → 精确修改对应关节的参数（见下方注释的索引对应表）
+#
+# ==================== 测试建议 ====================
+# 1. 每次修改参数幅度不超过 ±20%，避免剧烈波动
+# 2. 修改后先在 MuJoCo 模拟跑 1-2 个 episode 观察表现
+# 3. 记录修改前后的对比（参数值 + 动作质量评分）
+# 4. 如果效果不理想，回滚到上一个配置，微调改动幅度
+# 5. 最终满意的参数可保存到 git，便于对比和回溯
+#
+# ==========================================
+
+onnx_path: zhaiwutest1.onnx
+mj2lab:
+#这里是关节顺序映射表,mj2lab表示从MuJoCo顺序到lab顺序的映射
+- 0
+- 6
+- 12
+- 1
+- 7
+- 13
+- 2
+- 8
+- 14
+- 3
+- 9
+- 15
+- 22
+- 4
+- 10
+- 16
+- 23
+- 5
+- 11
+- 17
+- 24
+- 18
+- 25
+- 19
+- 26
+- 20
+- 27
+- 21
+- 28
+use_onnx_metadata: true
+fallback:
+  default_joint_pos:
+  # 说明：这里是“lab 顺序”的默认关节角（单位：rad）。
+  #      lab_idx 对应的 MuJoCo 关节名由 mj2lab[lab_idx] 映射到 MuJoCo actuator 顺序。
+  - -0.312   # 0: 左髋俯仰 (left_hip_pitch)
+  - -0.312   # 1: 右髋俯仰 (right_hip_pitch)
+  - 0.0      # 2: 腰偏航 (waist_yaw)
+  - 0.0      # 3: 左髋滚转/侧摆 (left_hip_roll)
+  - 0.0      # 4: 右髋滚转/侧摆 (right_hip_roll)
+  - 0.0      # 5: 腰滚转/侧摆 (waist_roll)
+  - 0.0      # 6: 左髋偏航 (left_hip_yaw)
+  - 0.0      # 7: 右髋偏航 (right_hip_yaw)
+  - 0.0      # 8: 腰俯仰 (waist_pitch)
+  - 0.669    # 9: 左膝俯仰 (left_knee)
+  - 0.669    # 10: 右膝俯仰 (right_knee)
+  - 0.2      # 11: 左肩俯仰 (left_shoulder_pitch)
+  - 0.2      # 12: 右肩俯仰 (right_shoulder_pitch)
+  - -0.363   # 13: 左踝俯仰 (left_ankle_pitch)
+  - -0.363   # 14: 右踝俯仰 (right_ankle_pitch)
+  - 0.2      # 15: 左肩滚转/侧摆 (left_shoulder_roll)
+  - -0.2     # 16: 右肩滚转/侧摆 (right_shoulder_roll)
+  - 0.0      # 17: 左踝滚转/侧摆 (left_ankle_roll)
+  - 0.0      # 18: 右踝滚转/侧摆 (right_ankle_roll)
+  - 0.0      # 19: 左肩偏航 (left_shoulder_yaw)
+  - 0.0      # 20: 右肩偏航 (right_shoulder_yaw)
+  - 0.6      # 21: 左肘俯仰 (left_elbow)
+  - 0.6      # 22: 右肘俯仰 (right_elbow)
+  - 0.0      # 23: 左腕滚转 (left_wrist_roll)
+  - 0.0      # 24: 右腕滚转 (right_wrist_roll)
+  - 0.0      # 25: 左腕俯仰 (left_wrist_pitch)
+  - 0.0      # 26: 右腕俯仰 (right_wrist_pitch)
+  - 0.0      # 27: 左腕偏航 (left_wrist_yaw)
+  - 0.0      # 28: 右腕偏航 (right_wrist_yaw)
+  joint_stiffness:
+  #关节刚度 (kp) - 单位: N·m/rad
+  - 40.179    # 0: 左髋俯仰 (left_hip_pitch)
+  - 40.179    # 1: 右髋俯仰 (right_hip_pitch)
+  - 40.179    # 2: 腰偏航 (waist_yaw)
+  - 99.098    # 3: 左髋滚转/侧摆 (left_hip_roll)
+  - 99.098    # 4: 右髋滚转/侧摆 (right_hip_roll)
+  - 28.501    # 5: 腰滚转/侧摆 (waist_roll)
+  - 40.179    # 6: 左髋偏航 (left_hip_yaw)
+  - 40.179    # 7: 右髋偏航 (right_hip_yaw)
+  - 28.501    # 8: 腰俯仰 (waist_pitch)
+  - 99.098    # 9: 左膝俯仰 (left_knee)
+  - 99.098    # 10: 右膝俯仰 (right_knee)
+  - 14.251    # 11: 左肩俯仰 (left_shoulder_pitch)
+  - 14.251    # 12: 右肩俯仰 (right_shoulder_pitch)
+  - 28.501    # 13: 左踝俯仰 (left_ankle_pitch)
+  - 28.501    # 14: 右踝俯仰 (right_ankle_pitch)
+  - 14.251    # 15: 左肩滚转/侧摆 (left_shoulder_roll)
+  - 14.251    # 16: 右肩滚转/侧摆 (right_shoulder_roll)
+  - 28.501    # 17: 左踝滚转/侧摆 (left_ankle_roll)
+  - 28.501    # 18: 右踝滚转/侧摆 (right_ankle_roll)
+  - 14.251    # 19: 左肩偏航 (left_shoulder_yaw)
+  - 14.251    # 20: 右肩偏航 (right_shoulder_yaw)
+  - 14.251    # 21: 左肘俯仰 (left_elbow)
+  - 14.251    # 22: 右肘俯仰 (right_elbow)
+  - 14.251    # 23: 左腕滚转 (left_wrist_roll)
+  - 14.251    # 24: 右腕滚转 (right_wrist_roll)
+  - 14.251    # 25: 左腕俯仰 (left_wrist_pitch)
+  - 16.778    # 26: 右腕俯仰 (right_wrist_pitch)
+  - 16.778    # 27: 左腕偏航 (left_wrist_yaw)
+  - 16.778    # 28: 右腕偏航 (right_wrist_yaw)
+  joint_damping:
+  #关节阻尼 (kd) - 单位: N·m·s/rad
+  - 2.558     # 0: 左髋俯仰 (left_hip_pitch)
+  - 2.558     # 1: 右髋俯仰 (right_hip_pitch)
+  - 2.558     # 2: 腰偏航 (waist_yaw)
+  - 6.309     # 3: 左髋滚转/侧摆 (left_hip_roll)
+  - 6.309     # 4: 右髋滚转/侧摆 (right_hip_roll)
+  - 1.814     # 5: 腰滚转/侧摆 (waist_roll)
+  - 2.558     # 6: 左髋偏航 (left_hip_yaw)
+  - 2.558     # 7: 右髋偏航 (right_hip_yaw)
+  - 1.814     # 8: 腰俯仰 (waist_pitch)
+  - 6.309     # 9: 左膝俯仰 (left_knee)
+  - 6.309     # 10: 右膝俯仰 (right_knee)
+  - 0.907     # 11: 左肩俯仰 (left_shoulder_pitch)
+  - 0.907     # 12: 右肩俯仰 (right_shoulder_pitch)
+  - 1.814     # 13: 左踝俯仰 (left_ankle_pitch)
+  - 1.814     # 14: 右踝俯仰 (right_ankle_pitch)
+  - 0.907     # 15: 左肩滚转/侧摆 (left_shoulder_roll)
+  - 0.907     # 16: 右肩滚转/侧摆 (right_shoulder_roll)
+  - 1.814     # 17: 左踝滚转/侧摆 (left_ankle_roll)
+  - 1.814     # 18: 右踝滚转/侧摆 (right_ankle_roll)
+  - 0.907     # 19: 左肩偏航 (left_shoulder_yaw)
+  - 0.907     # 20: 右肩偏航 (right_shoulder_yaw)
+  - 0.907     # 21: 左肘俯仰 (left_elbow)
+  - 0.907     # 22: 右肘俯仰 (right_elbow)
+  - 0.907     # 23: 左腕滚转 (left_wrist_roll)
+  - 0.907     # 24: 右腕滚转 (right_wrist_roll)
+  - 0.907     # 25: 左腕俯仰 (left_wrist_pitch)
+  - 1.068     # 26: 右腕俯仰 (right_wrist_pitch)
+  - 1.068     # 27: 左腕偏航 (left_wrist_yaw)
+  - 1.068     # 28: 右腕偏航 (right_wrist_yaw)
+  action_scale:
+  #动作幅度缩放 - 无单位
+  - 0.548     # 0: 左髋俯仰 (left_hip_pitch)
+  - 0.548     # 1: 右髋俯仰 (right_hip_pitch)
+  - 0.548     # 2: 腰偏航 (waist_yaw)
+  - 0.351     # 3: 左髋滚转/侧摆 (left_hip_roll)
+  - 0.351     # 4: 右髋滚转/侧摆 (right_hip_roll)
+  - 0.439     # 5: 腰滚转/侧摆 (waist_roll)
+  - 0.548     # 6: 左髋偏航 (left_hip_yaw)
+  - 0.548     # 7: 右髋偏航 (right_hip_yaw)
+  - 0.439     # 8: 腰俯仰 (waist_pitch)
+  - 0.351     # 9: 左膝俯仰 (left_knee)
+  - 0.351     # 10: 右膝俯仰 (right_knee)
+  - 0.439     # 11: 左肩俯仰 (left_shoulder_pitch)
+  - 0.439     # 12: 右肩俯仰 (right_shoulder_pitch)
+  - 0.439     # 13: 左踝俯仰 (left_ankle_pitch)
+  - 0.439     # 14: 右踝俯仰 (right_ankle_pitch)
+  - 0.439     # 15: 左肩滚转/侧摆 (left_shoulder_roll)
+  - 0.439     # 16: 右肩滚转/侧摆 (right_shoulder_roll)
+  - 0.439     # 17: 左踝滚转/侧摆 (left_ankle_roll)
+  - 0.439     # 18: 右踝滚转/侧摆 (right_ankle_roll)
+  - 0.439     # 19: 左肩偏航 (left_shoulder_yaw)
+  - 0.439     # 20: 右肩偏航 (right_shoulder_yaw)
+  - 0.075     # 21: 左肘俯仰 (left_elbow)
+  - 0.439     # 22: 右肘俯仰 (right_elbow)
+  - 0.439     # 23: 左腕滚转 (left_wrist_roll)
+  - 0.439     # 24: 右腕滚转 (right_wrist_roll)
+  - 0.439     # 25: 左腕俯仰 (left_wrist_pitch)
+  - 0.075     # 26: 右腕俯仰 (right_wrist_pitch)
+  - 0.075     # 27: 左腕偏航 (left_wrist_yaw)
+  - 0.075     # 28: 右腕偏航 (right_wrist_yaw)

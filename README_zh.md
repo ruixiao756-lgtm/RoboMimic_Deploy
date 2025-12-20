@@ -93,8 +93,7 @@ python deploy_mujoco/deploy_mujoco.py
 | **LocoMode**     | 用于稳定行走的控制模式                                               |
 | **Dance**        | 查尔斯顿舞蹈                                                         |
 | **KungFu**       | 武术动作                                                             |
-| **KungFu2**      | 训练失败的武术动作                                                   |
-| **Kick**         | 拿来凑数的动作                                                       |
+| **WbtDance**     | sim2sim：whole_body_tracking 导出的 Motion Tracking 策略（ONNX）      |
 | **SkillCast**    | 下肢+腰部稳定站立，上肢位控至特定关节角，一般在执行Mimic策略前执行   |
 | **SkillCooldown**| 下肢+腰部持续平衡，上肢恢复至默认关节角，一般在执行Mimic策略后执行    |
 
@@ -102,6 +101,24 @@ python deploy_mujoco/deploy_mujoco.py
 ## 3. 仿真操作说明
 
 1. 连接Xbox手柄
+
+> 如果没有手柄：可以用键盘模拟输入。
+> - 启动时加环境变量：`USE_KEYBOARD=1 python deploy_mujoco/deploy_mujoco.py`
+> - 默认键位映射在 `common/keyboard_joystick.py`（下表为当前默认映射；注意必须先点一下弹出的 Pygame 小窗口让它获得焦点）
+>
+> **按钮映射（无手柄）**
+> - `Enter` = Start
+> - `Backspace` = Select
+> - `Left Shift` = R1
+> - `Tab` = L1
+> - `Space` = A
+> - `X` = X
+> - `Y` = Y
+> - `B` = B
+>
+> **摇杆映射（无手柄）**
+> - 左摇杆：`WASD` 或 方向键
+> - 右摇杆：`IJKL`
 
 2. 运行仿真程序：
 ```bash
@@ -117,9 +134,7 @@ python deploy_mujoco/deploy_mujoco.py
 
 7. 在LocoMode模式下，按R1+Y让机器人表演武术动作，**只推荐在仿真中使用**
 
-8. 在LocoMode模式下，按L1+Y让机器人表演训练失败的武术动作，**只推荐在仿真中使用**
-
-9. 在LocoMode模式下，按R1+B让机器人表演踢腿动作，**只推荐在仿真中使用**
+8. 在LocoMode模式下，按R1+B（或 L1+Y）触发 **WbtDance**（whole_body_tracking 导出的 ONNX 策略，sim2sim）
 ---
 ## 4. 真机操作说明
 1. 开机后将机器人吊起来，按L2+R2进入调试模式
