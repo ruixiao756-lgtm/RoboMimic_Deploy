@@ -133,7 +133,7 @@ fallback:
   - 0.0      # 5: 腰滚转/侧摆 (waist_roll)        # original: 0.0
   - 0.0      # 6: 左髋偏航 (left_hip_yaw)         # original: 0.0
   - 0.0      # 7: 右髋偏航 (right_hip_yaw)        # original: 0.0
-  - -0.03      # 8: 腰俯仰 (waist_pitch)            # original: 0.0
+  - -0.01      # 8: 腰俯仰 (waist_pitch)            # original: 0.0
   - 0.669    # 9: 左膝俯仰 (left_knee)            # original: 0.669
   - 0.669    # 10: 右膝俯仰 (right_knee)          # original: 0.669
   - 0.2      # 11: 左肩俯仰 (left_shoulder_pitch)  # original: 0.2
@@ -227,8 +227,8 @@ fallback:
   - 0.5475464652142303     # 6: 左髋偏航 (left_hip_yaw)         # from env.yaml: 0.5475464652142303
   - 0.5475464652142303     # 7: 右髋偏航 (right_hip_yaw)        # from env.yaml: 0.5475464652142303
   - 0.41857731392336724    # 8: 腰俯仰 (waist_pitch)            # from env.yaml: 0.43857731392336724
-  - 0.4866042666826538     # 9: 左膝俯仰 (left_knee)            # previous: 0.3681945396977655 -> ×1.05
-  - 0.4866042666826538     # 10: 右膝俯仰 (right_knee)          # previous: 0.3681945396977655 -> ×1.05
+  - 0.5066042666826538     # 9: 左膝俯仰 (left_knee)            # previous: 0.3681945396977655 -> ×1.05
+  - 0.5066042666826538     # 10: 右膝俯仰 (right_knee)          # previous: 0.3681945396977655 -> ×1.05
   - 0.43857731392336724    # 11: 左肩俯仰 (left_shoulder_pitch)  # from env.yaml: 0.43857731392336724
   - 0.43857731392336724    # 12: 右肩俯仰 (right_shoulder_pitch) # from env.yaml: 0.43857731392336724
   - 0.43857731392336724    # 13: 左踝俯仰 (left_ankle_pitch)     # from env.yaml: 0.43857731392336724
