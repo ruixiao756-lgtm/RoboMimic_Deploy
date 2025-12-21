@@ -133,7 +133,7 @@ fallback:
   - 0.0      # 5: 腰滚转/侧摆 (waist_roll)        # original: 0.0
   - 0.0      # 6: 左髋偏航 (left_hip_yaw)         # original: 0.0
   - 0.0      # 7: 右髋偏航 (right_hip_yaw)        # original: 0.0
-  - 0.0      # 8: 腰俯仰 (waist_pitch)            # original: 0.0
+  - -0.03      # 8: 腰俯仰 (waist_pitch)            # original: 0.0
   - 0.669    # 9: 左膝俯仰 (left_knee)            # original: 0.669
   - 0.669    # 10: 右膝俯仰 (right_knee)          # original: 0.669
   - 0.2      # 11: 左肩俯仰 (left_shoulder_pitch)  # original: 0.2
