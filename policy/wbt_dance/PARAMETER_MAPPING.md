@@ -294,27 +294,25 @@ joint_stiffness:
 动作：大腿前后摆（抬腿/后伸），控制步态步幅和前后 CoM 位移。
 对平衡：非常重要 —— 前倾/后仰直接改变质心前后位置。
 髋滚转/侧摆 (hip_roll)
-
 轴：roll（绕 x 轴）
 动作：大腿向侧外展/内收（把腿往外/往内），影响横向支撑和侧向稳定。
 对平衡：影响侧向稳定性，配合踝/膝保持不倒。
 髋偏航 (hip_yaw)
-
 轴：yaw（绕 z 轴）
 动作：大腿相对于身体旋转（扭转），影响脚尖朝向与步态方向。
 对平衡：对横向/前后影响较小，但影响运动方向控制与步态匹配。
-膝 (knee)（通常是 knee_pitch）
 
+膝 (knee)（通常是 knee_pitch）
 轴：pitch（绕 y 轴）
 动作：屈伸（抬腿、蹲起），影响支撑高度与承重。
 对平衡：非常关键，决定地面反作用力分配与缓冲。
-踝（ankle_pitch / ankle_roll）
 
+踝（ankle_pitch / ankle_roll）
 ankle_pitch：绕 y 轴（前后）—— 控制脚尖抬/放，调节前后平衡。
 ankle_roll：绕 x 轴（侧向）—— 控制内外侧倾斜，调节侧向平衡。
 对平衡：和膝/髋一起决定支撑稳定性，常用于微调 CoM。
-腰 / 躯干（waist_yaw, waist_roll, waist_pitch）
 
+腰 / 躯干（waist_yaw, waist_roll, waist_pitch）
 yaw/roll/pitch 如上，腰的 pitch（前后）是导致“后仰”问题的关键关节之一。
 对平衡：腰部动作直接移动上半身质心，高幅度前/后动作会让机器人需要用腿部大幅补偿。
 肩膀（shoulder_pitch / shoulder_roll / shoulder_yaw）
