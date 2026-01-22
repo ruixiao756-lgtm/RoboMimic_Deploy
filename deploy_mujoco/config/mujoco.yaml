@@ -1,3 +1,3 @@
 xml_path: "g1_description/scene.xml"
 simulation_dt: 0.003
-control_decimation: 7
+control_decimation: 9  # 从7提高到9，使动作速度约降低到0.78倍 (7/9 ≈ 0.78)

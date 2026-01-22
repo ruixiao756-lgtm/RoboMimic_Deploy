@@ -118,6 +118,9 @@ class LocoMode(FSMState):
             return FSMStateName.SKILL_WBT_DANCE
         elif(self.state_cmd.skill_cmd == FSMCommand.SKILL_4):
             return FSMStateName.SKILL_WBT_DANCE
+        elif(self.state_cmd.skill_cmd == FSMCommand.POS_RESET):
+            self.state_cmd.skill_cmd = FSMCommand.INVALID
+            return FSMStateName.FIXEDPOSE
         elif(self.state_cmd.skill_cmd == FSMCommand.PASSIVE):
             return FSMStateName.PASSIVE
         else:

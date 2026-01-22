@@ -203,12 +203,19 @@ class _PygameKeyboardInput(_BaseInput):
             4: self._pygame.K_TAB,  # LB
             5: self._pygame.K_LSHIFT,  # RB
             6: self._pygame.K_BACKSPACE,  # SELECT/BACK
+            # START: Enter（用于 POS_RESET -> FixedPose 姿态复位）
             7: self._pygame.K_RETURN,  # START
             8: self._pygame.K_c,  # L3
-            9: self._pygame.K_v,  # R3
+            # R3: 仿真硬重置（重新放置机器人）。键盘提供 V/F5/R 三种触发方式。
+            9: (self._pygame.K_v, self._pygame.K_F5, self._pygame.K_r),  # R3
         }
         key = mapping.get(i)
-        return bool(keys[key]) if key is not None else False
+        if key is None:
+            return False
+        # 支持单个 keycode 或 keycode 元组
+        if isinstance(key, (tuple, list)):
+            return any(bool(keys[k]) for k in key)
+        return bool(keys[key])
 
 
 class JoystickAdapter:

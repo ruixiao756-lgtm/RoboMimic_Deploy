@@ -23,6 +23,15 @@ def pd_control(target_q, q, kp, target_dq, dq, kd):
     return (target_q - q) * kp + (target_dq - dq) * kd
 
 if __name__ == "__main__":
+    # Wayland 下 GLFW/MuJoCo viewer 的鼠标拖拽/点击有时会异常；
+    # 若用户显式要求 X11，则尽量让 GLFW 与 SDL 都走 X11/XWayland。
+    if os.getenv("GLFW_PLATFORM", "").lower() == "x11":
+        # SDL/pygame 也切到 X11（避免 Wayland/SDL 与 X11/GLFW 混用导致输入异常）
+        os.environ.setdefault("SDL_VIDEODRIVER", "x11")
+        # 在 Wayland 会话里，只要有 DISPLAY（XWayland）就移除 WAYLAND_DISPLAY，逼迫 GLFW 选择 X11
+        if os.getenv("DISPLAY") and os.getenv("WAYLAND_DISPLAY"):
+            os.environ.pop("WAYLAND_DISPLAY", None)
+
     current_dir = os.path.dirname(os.path.abspath(__file__))
     mujoco_yaml_path = os.path.join(current_dir, "config", "mujoco.yaml")
     with open(mujoco_yaml_path, "r") as f:
@@ -46,6 +55,8 @@ if __name__ == "__main__":
     FSM_controller = FSM(state_cmd, policy_output)
     
     joystick = get_joystick()
+    # 提示：Wayland 下 MuJoCo viewer 的鼠标按钮可能失效，提供键盘/手柄快捷键
+    print('提示: Enter(或手柄 START)=姿态复位到默认位姿(FixedPose)；R(或手柄 R3，或键盘 F5/V)=MuJoCo 硬重置并回到 LOCO(重新放置机器人)')
     Running = True
     with mujoco.viewer.launch_passive(m, d) as viewer:
         sim_start_time = time.time()
@@ -54,6 +65,20 @@ if __name__ == "__main__":
             try:
                 # 必须先更新输入状态
                 joystick.update()
+
+                # MuJoCo 仿真硬重置：回到 XML 的初始 qpos/qvel（相当于“重新放置机器人”）
+                # - 键盘：F5（在 keyboard_joystick.py 映射为 R3）
+                # - 手柄：R3
+                if joystick.is_button_just_pressed(JoystickButton.R3):
+                    mujoco.mj_resetData(m, d)
+                    mujoco.mj_forward(m, d)
+                    sim_counter = 0
+                    policy_output_action[:] = 0.0
+                    kps[:] = 0.0
+                    kds[:] = 0.0
+                    state_cmd.vel_cmd[:] = 0.0
+                    state_cmd.skill_cmd = FSMCommand.LOCO
+                    print('>>> MuJoCo 硬重置完成：已重新放置机器人，并切回 LOCO')
                 
                 # 终止程序（按下 SELECT）
                 if joystick.is_button_just_pressed(JoystickButton.SELECT):
