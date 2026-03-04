@@ -123,10 +123,27 @@ class WbtDance(FSMState):
         self.action_scale_lab = self.fallback.action_scale
 
     def _reload_config(self) -> None:
-        """Hot reload fallback parameters from YAML config (called on enter)."""
+        """Hot reload config from YAML (called on enter)."""
         try:
             with open(self.config_path, "r") as f:
                 config = yaml.load(f, Loader=yaml.FullLoader)
+            # Reload ONNX if path changed
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            new_onnx_path = os.path.join(current_dir, "model", config["onnx_path"])
+            if new_onnx_path != self.onnx_path:
+                if not os.path.exists(new_onnx_path):
+                    raise FileNotFoundError(f"ONNX not found: {new_onnx_path}")
+                self.onnx_path = new_onnx_path
+                self.onnx_model = onnx.load(self.onnx_path)
+                self.ort_session = onnxruntime.InferenceSession(self.onnx_path)
+                self.input_names = [i.name for i in self.ort_session.get_inputs()]
+                obs_shape = self.ort_session.get_inputs()[0].shape
+                self.num_obs = int(obs_shape[1]) if len(obs_shape) >= 2 and obs_shape[1] is not None else 154
+
+                # Re-load params from metadata (or fallback) for new model
+                self._load_params_from_metadata_or_fallback()
+                print(f"[WbtDance] ONNX reloaded: {os.path.basename(self.onnx_path)}")
+
             fb = config.get("fallback", {})
             self.fallback = _FallbackParams(
                 default_joint_pos=np.array(fb.get("default_joint_pos", [0.0] * 29), dtype=np.float32),

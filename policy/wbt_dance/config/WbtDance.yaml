@@ -88,7 +88,7 @@
 #
 # ==========================================
 
-onnx_path: policy.onnx  # 新导入模型（来自 whole_body_tracking/logs/rsl_rl/temp/exported）
+onnx_path: 2026-02-21_20-42-04_walk_experiment1.onnx  # 新导入模型（walk_experiment1）
 mj2lab:
 #这里是关节顺序映射表,mj2lab表示从MuJoCo顺序到lab顺序的映射
 - 0
