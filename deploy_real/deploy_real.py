@@ -110,8 +110,8 @@ class Controller:
                 self.state_cmd.skill_cmd = FSMCommand.SKILL_1
             if self.remote_controller.is_button_pressed(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.R1):
                 self.state_cmd.skill_cmd = FSMCommand.SKILL_2
-            if self.remote_controller.is_button_pressed(KeyMap.B) and self.remote_controller.is_button_pressed(KeyMap.R1):
-                self.state_cmd.skill_cmd = FSMCommand.SKILL_3
+            # if self.remote_controller.is_button_pressed(KeyMap.B) and self.remote_controller.is_button_pressed(KeyMap.R1):
+            #     self.state_cmd.skill_cmd = FSMCommand.SKILL_3
             # if self.remote_controller.is_button_pressed(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.L1):
             #     self.state_cmd.skill_cmd = FSMCommand.SKILL_4
             
@@ -125,7 +125,7 @@ class Controller:
 
             # imu_state quaternion: w, x, y, z
             quat = self.low_state.imu_state.quaternion
-            ang_vel = np.array(self.low_state.imu_state.gyroscope, dtype=np.float32)
+            ang_vel = np.array([self.low_state.imu_state.gyroscope], dtype=np.float32)
             
             gravity_orientation = get_gravity_orientation_real(quat)
             

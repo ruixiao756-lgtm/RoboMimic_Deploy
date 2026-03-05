@@ -60,6 +60,7 @@ class WbtDance(FSMState):
         self.onnx_path = os.path.join(current_dir, "model", config["onnx_path"])
         self.mj2lab = np.array(config["mj2lab"], dtype=np.int32)
         self.use_onnx_metadata = bool(config.get("use_onnx_metadata", True))
+        self.transition_steps = int(config.get("transition_steps", 50))
 
         fb = config.get("fallback", {})
         self.fallback = _FallbackParams(
@@ -154,6 +155,7 @@ class WbtDance(FSMState):
             # If not using ONNX metadata, update lab arrays from reloaded fallback
             if not self.use_onnx_metadata:
                 self._use_fallback()
+            self.transition_steps = int(config.get("transition_steps", 50))
             print(f"[WbtDance] Config reloaded from {self.config_path}")
         except Exception as e:
             print(f"[WbtDance] Failed to reload config: {e}")
@@ -164,22 +166,43 @@ class WbtDance(FSMState):
 
         self.counter_step = 0
 
-        # warmup one step to fetch ref motion outputs
+        # warmup one step to fetch ref motion outputs at t=0
         observation = {
             self.input_names[0]: np.zeros((1, self.num_obs), dtype=np.float32),
             self.input_names[1]: np.zeros((1, 1), dtype=np.float32),
         }
         outputs = self.ort_session.run(None, observation)
-        self.action, self.ref_joint_pos, self.ref_joint_vel, _, self.ref_body_quat_w, _, _ = outputs
+        _, self.ref_joint_pos, self.ref_joint_vel, _, self.ref_body_quat_w, _, _ = outputs
+
+        # FIX: Reset action to zeros after warmup.
+        # Training resets last_action to zeros on episode start.
+        # The warmup above can produce extreme actions (especially for motions
+        # whose starting pose differs from default), causing cascade failure
+        # when fed back as last_action in the first real observation.
+        self.action = np.zeros((1, 29), dtype=np.float32)
+
+        # Save reference t=0 joint positions (lab order) for the transition phase.
+        # In training, the robot is reset to the reference pose at the sampled time step.
+        # In deployment, the robot starts at default pose, which can be very different from
+        # the reference (e.g. walk: ref hip_pitch=0.48 vs default=-0.31, delta=0.79 rad).
+        # The policy has never seen this large discrepancy, so we need to first
+        # move the robot to the reference pose before running the policy.
+        self.ref_initial_pos_lab = self.ref_joint_pos.squeeze(0).copy()
 
         # reorder kp/kd into mujoco motor order
         self.kps_reorder = np.zeros(29, dtype=np.float32)
         self.kds_reorder = np.zeros(29, dtype=np.float32)
         self.default_angles_reorder = np.zeros(29, dtype=np.float32)
+        self.ref_initial_pos_reorder = np.zeros(29, dtype=np.float32)
         for lab_idx, mj_idx in enumerate(self.mj2lab):
             self.kps_reorder[mj_idx] = self.kps_lab[lab_idx]
             self.kds_reorder[mj_idx] = self.kds_lab[lab_idx]
             self.default_angles_reorder[mj_idx] = self.default_angles_lab[lab_idx]
+            self.ref_initial_pos_reorder[mj_idx] = self.ref_initial_pos_lab[lab_idx]
+
+        gap = np.abs(self.ref_initial_pos_lab - self.default_angles_lab).max()
+        print(f"[WbtDance] Ref-Default gap: {gap:.3f} rad ({np.degrees(gap):.1f}°), "
+              f"transition={self.transition_steps} steps (~{self.transition_steps * 0.02:.1f}s)")
 
         # yaw alignment cache
         self.init_to_world = None
@@ -252,6 +275,30 @@ class WbtDance(FSMState):
             init_to_anchor = self.matrix_from_quat(self.yaw_quat(ref_anchor_ori_w))
             world_to_anchor = self.matrix_from_quat(self.yaw_quat(robot_quat))
             self.init_to_world = world_to_anchor @ init_to_anchor.T
+            # Record the robot's current joint positions at start for smooth interpolation
+            if self.counter_step == 0:
+                self.start_pos_mj = self.state_cmd.q.copy()
+            self.counter_step += 1
+            return
+
+        # ------ TRANSITION PHASE ------
+        # Smoothly interpolate from the robot's starting pose to the reference initial pose.
+        # In training, the robot is reset directly to the reference pose (with small noise).
+        # In deployment, the robot comes from FixedPose (default angles) which can be very
+        # different from the reference motion's starting frame (e.g. walk hip_pitch differs
+        # by ~0.8 rad). The policy has never seen this discrepancy, so we need to bring the
+        # robot to the reference pose first.
+        if self.counter_step < 2 + self.transition_steps:
+            alpha = (self.counter_step - 2 + 1) / self.transition_steps  # 1/N .. 1.0
+            alpha = min(alpha, 1.0)
+            # Smooth ease-in-out
+            alpha = alpha * alpha * (3 - 2 * alpha)
+            target_mj = (1 - alpha) * self.start_pos_mj + alpha * self.ref_initial_pos_reorder
+            self.policy_output.actions = target_mj.astype(np.float32)
+            self.policy_output.kps = self.kps_reorder
+            self.policy_output.kds = self.kds_reorder
+            if self.counter_step == 1 + self.transition_steps:
+                print(f"[WbtDance] Transition complete, starting policy execution")
             self.counter_step += 1
             return
 
@@ -274,9 +321,12 @@ class WbtDance(FSMState):
             dtype=np.float32,
         )
 
+        # Policy time_step: offset by the transition to start from t=0 in the motion
+        policy_step = self.counter_step - 2 - self.transition_steps
+
         observation = {
             self.input_names[0]: torch.from_numpy(obs_buf).unsqueeze(0).cpu().numpy(),
-            self.input_names[1]: np.array([[self.counter_step]], dtype=np.float32),
+            self.input_names[1]: np.array([[policy_step]], dtype=np.float32),
         }
 
         outputs = self.ort_session.run(None, observation)
