@@ -21,44 +21,70 @@ class BeyondMimic(FSMState):
         self.motion_phase = 0
         self.counter_step = 0
         self.ref_motion_phase = 0
-        
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.join(current_dir, "config", "BeyondMimic.yaml")
-        with open(config_path, "r") as f:
+        self.current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.config_path = os.path.join(self.current_dir, "config", "BeyondMimic.yaml")
+
+        self._reload_config(initial_load=True)
+
+        self.qj_obs = np.zeros(self.num_actions, dtype=np.float32)
+        self.dqj_obs = np.zeros(self.num_actions, dtype=np.float32)
+        self.obs = np.zeros(self.num_obs, dtype=np.float32)
+        self.action = np.zeros((1, self.num_actions), dtype=np.float32)
+
+        self.ref_joint_pos = np.zeros((1, self.num_actions), dtype=np.float32)
+        self.ref_joint_vel = np.zeros((1, self.num_actions), dtype=np.float32)
+        self.ref_body_pos_w = np.zeros((1, 14, 3), dtype=np.float32)
+        self.ref_body_quat_w = np.zeros((1, 14, 4), dtype=np.float32)
+        self.ref_body_lin_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
+        self.ref_body_ang_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
+
+        print("BeyondMimic-like policy initializing ...")
+
+    def _resolve_onnx_path(self, onnx_path: str) -> str:
+        candidates = []
+        if os.path.isabs(onnx_path):
+            candidates.append(onnx_path)
+        else:
+            candidates.append(os.path.join(self.current_dir, "model", onnx_path))
+            candidates.append(os.path.join(self.current_dir, onnx_path))
+
+        for candidate in candidates:
+            normalized = os.path.normpath(candidate)
+            if os.path.exists(normalized):
+                return normalized
+
+        return os.path.normpath(candidates[0])
+
+    def _reload_config(self, initial_load: bool = False):
+        with open(self.config_path, "r") as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
-            self.onnx_path = os.path.join(current_dir, "model", config["onnx_path"])
-            self.kps_lab = np.array(config["kp_lab"], dtype=np.float32)
-            self.kds_lab = np.array(config["kd_lab"], dtype=np.float32)
-            self.default_angles_lab =  np.array(config["default_angles_lab"], dtype=np.float32)
-            self.mj2lab =  np.array(config["mj2lab"], dtype=np.int32)
-            self.tau_limit =  np.array(config["tau_limit"], dtype=np.float32)
-            self.num_actions = config["num_actions"]
-            self.num_obs = config["num_obs"]
-            self.action_scale_lab = np.array(config["action_scale_lab"], dtype=np.float32)
-            self.motion_length = config["motion_length"]
-            
-            self.qj_obs = np.zeros(self.num_actions, dtype=np.float32)
-            self.dqj_obs = np.zeros(self.num_actions, dtype=np.float32)
-            self.obs = np.zeros(self.num_obs)
-            self.action = np.zeros(self.num_actions)
-            
-            self.ref_joint_pos = np.zeros(self.num_actions, dtype=np.float32)
-            self.ref_joint_vel = np.zeros(self.num_actions, dtype=np.float32)
-            self.ref_body_pos_w = np.zeros((1, 14, 3), dtype=np.float32)
-            self.ref_body_quat_w = np.zeros((1, 14, 4), dtype=np.float32)
-            self.ref_body_lin_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
-            self.ref_body_ang_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
-            # load policy
+
+        new_onnx_path = self._resolve_onnx_path(config["onnx_path"])
+        if not os.path.exists(new_onnx_path):
+            raise FileNotFoundError(f"ONNX not found: {new_onnx_path}")
+
+        self.kps_lab = np.array(config["kp_lab"], dtype=np.float32)
+        self.kds_lab = np.array(config["kd_lab"], dtype=np.float32)
+        self.default_angles_lab = np.array(config["default_angles_lab"], dtype=np.float32)
+        self.mj2lab = np.array(config["mj2lab"], dtype=np.int32)
+        self.tau_limit = np.array(config["tau_limit"], dtype=np.float32)
+        self.num_actions = int(config["num_actions"])
+        self.num_obs = int(config["num_obs"])
+        self.action_scale_lab = np.array(config["action_scale_lab"], dtype=np.float32)
+        self.motion_length = config["motion_length"]
+
+        if initial_load or getattr(self, "onnx_path", None) != new_onnx_path:
+            self.onnx_path = new_onnx_path
             self.onnx_model = onnx.load(self.onnx_path)
             self.ort_session = onnxruntime.InferenceSession(self.onnx_path)
-            input = self.ort_session.get_inputs()
-            self.input_name = []
-            for i, inpt in enumerate(input):
-                self.input_name.append(inpt.name)
+            self.input_name = [inpt.name for inpt in self.ort_session.get_inputs()]
+            print(f"[BeyondMimic] ONNX reloaded: {os.path.basename(self.onnx_path)}")
 
-            print("BeyondMimic-like policy initializing ...")
+        print(f"[BeyondMimic] Config reloaded from {self.config_path}")
     
     def enter(self):
+        self._reload_config()
+
         self.ref_motion_phase = 0.
         self.motion_time = 0
         self.counter_step = 0
