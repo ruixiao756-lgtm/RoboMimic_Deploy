@@ -87,8 +87,9 @@
 # 5. 最终满意的参数可保存到 git，便于对比和回溯
 #
 # ==========================================
-
-onnx_path: 2026-02-22_09-50-51_turn_experiment1.onnx  # 新导入模型（walk_experiment1）
+# conda activate robomimic
+# python deploy_mujoco/deploy_mujoco.py
+onnx_path: Waltz.onnx  # 新导入模型（walk_experiment1）
 
 # 姿态过渡步数：进入策略前，用多少步将机器人从当前姿态平滑过渡到参考动作初始姿态
 # 原理：训练时机器人从参考姿态（+小扰动）启动，但MuJoCo中机器人从FixedPose启动，

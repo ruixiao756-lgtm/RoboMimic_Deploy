@@ -57,6 +57,7 @@ if __name__ == "__main__":
     joystick = get_joystick()
     # 提示：Wayland 下 MuJoCo viewer 的鼠标按钮可能失效，提供键盘/手柄快捷键
     print('提示: Enter(或手柄 START)=姿态复位到默认位姿(FixedPose)；R(或手柄 R3，或键盘 F5/V)=MuJoCo 硬重置并回到 LOCO(重新放置机器人)')
+    print('快捷键: Shift+X=SKILL_1，Shift+Y=SKILL_2，Shift+B=SKILL_3/WBT_DANCE，Tab+Y=SKILL_4/WBT_DANCE，Tab+T=BeyondMimic')
     Running = True
     with mujoco.viewer.launch_passive(m, d) as viewer:
         sim_start_time = time.time()
@@ -137,6 +138,16 @@ if __name__ == "__main__":
                     else:
                         state_cmd.skill_cmd = FSMCommand.SKILL_4
                         print(">>> 切换到: SKILL_4 WBT_DANCE (whole_body_tracking 导出策略)")
+
+                # SKILL_5 (BeyondMimic): L1 + HOME / 键盘 Tab + T
+                if joystick.is_button_just_pressed(JoystickButton.HOME) and joystick.is_button_pressed(JoystickButton.L1):
+                    if FSM_controller.cur_policy.name == FSMStateName.SKILL_BEYOND_MIMIC:
+                        FSM_controller.cur_policy.exit()
+                        FSM_controller.cur_policy.enter()
+                        print(">>> 重新启动: SKILL_5 BeyondMimic")
+                    else:
+                        state_cmd.skill_cmd = FSMCommand.SKILL_5
+                        print(">>> 切换到: SKILL_5 BeyondMimic (walking ONNX)")
                 
                 state_cmd.vel_cmd[0] = -joystick.get_axis_value(1)
                 state_cmd.vel_cmd[1] = -joystick.get_axis_value(0)

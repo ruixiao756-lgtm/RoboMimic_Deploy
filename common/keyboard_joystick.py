@@ -167,7 +167,7 @@ class _PygameKeyboardInput(_BaseInput):
         return 6
 
     def get_numbuttons(self) -> int:
-        return 10
+        return 11
 
     def get_axis(self, i: int) -> float:
         self.pump()
@@ -208,6 +208,7 @@ class _PygameKeyboardInput(_BaseInput):
             8: self._pygame.K_c,  # L3
             # R3: 仿真硬重置（重新放置机器人）。键盘提供 V/F5/R 三种触发方式。
             9: (self._pygame.K_v, self._pygame.K_F5, self._pygame.K_r),  # R3
+            10: self._pygame.K_t,  # HOME（配合 Tab 触发 BeyondMimic）
         }
         key = mapping.get(i)
         if key is None:

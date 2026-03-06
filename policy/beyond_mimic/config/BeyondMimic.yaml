@@ -1,4 +1,4 @@
-onnx_path: "policy_fightAndSports1_s1.onnx"
+onnx_path: "2026-02-22_09-50-51_turn_experiment1.onnx"
 motion_length: 140 
 
 tau_limit: [88.0,  88.0, 88.0,

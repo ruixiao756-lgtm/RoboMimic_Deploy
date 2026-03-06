@@ -219,10 +219,17 @@ class BeyondMimic(FSMState):
         self.counter_step += 1
 
     def exit(self):
-        self.action = np.zeros(23, dtype=np.float32)
-        self.action_buf = np.zeros(23 * self.history_length, dtype=np.float32)
+        self.action = np.zeros((1, self.num_actions), dtype=np.float32)
+        self.ref_joint_pos = np.zeros((1, self.num_actions), dtype=np.float32)
+        self.ref_joint_vel = np.zeros((1, self.num_actions), dtype=np.float32)
+        self.ref_body_pos_w = np.zeros((1, 14, 3), dtype=np.float32)
+        self.ref_body_quat_w = np.zeros((1, 14, 4), dtype=np.float32)
+        self.ref_body_lin_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
+        self.ref_body_ang_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
+        self.qj_obs = np.zeros(self.num_actions, dtype=np.float32)
+        self.dqj_obs = np.zeros(self.num_actions, dtype=np.float32)
+        self.obs = np.zeros(self.num_obs, dtype=np.float32)
         self.ref_motion_phase = 0.
-        self.ref_motion_phase_buf = np.zeros(1 * self.history_length, dtype=np.float32)
         self.motion_time = 0
         self.counter_step = 0
         
