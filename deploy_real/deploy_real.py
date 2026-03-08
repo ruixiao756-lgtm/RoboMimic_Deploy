@@ -95,8 +95,10 @@ class Controller:
         
     def run(self):
         try:
-            # if(self.counter_over_time >= config.error_over_time):
-            #     raise ValueError("counter_over_time >= error_over_time")
+            if(self.counter_over_time >= self.config.error_over_time):
+                print(f"[SAFETY] Control loop over time {self.counter_over_time} times, switching to PASSIVE.")
+                self.state_cmd.skill_cmd = FSMCommand.PASSIVE
+                self.counter_over_time = 0
             
             loop_start_time = time.time()
             
@@ -110,10 +112,16 @@ class Controller:
                 self.state_cmd.skill_cmd = FSMCommand.SKILL_1
             if self.remote_controller.is_button_pressed(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.R1):
                 self.state_cmd.skill_cmd = FSMCommand.SKILL_2
-            # if self.remote_controller.is_button_pressed(KeyMap.B) and self.remote_controller.is_button_pressed(KeyMap.R1):
-            #     self.state_cmd.skill_cmd = FSMCommand.SKILL_3
-            # if self.remote_controller.is_button_pressed(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.L1):
-            #     self.state_cmd.skill_cmd = FSMCommand.SKILL_4
+            if self.remote_controller.is_button_pressed(KeyMap.B) and self.remote_controller.is_button_pressed(KeyMap.R1):
+                if self.FSM_controller.cur_policy.name == FSMStateName.SKILL_BEYOND_MIMIC:
+                    # 已在 BeyondMimic：直接重启（触发 _reload_config 热重载）
+                    self.FSM_controller.cur_policy.exit()
+                    self.FSM_controller.cur_policy.enter()
+                    print("[BeyondMimic] Restarted (hot-reload config/ONNX)")
+                else:
+                    self.state_cmd.skill_cmd = FSMCommand.SKILL_5  # BeyondMimic
+            if self.remote_controller.is_button_pressed(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.L1):
+                self.state_cmd.skill_cmd = FSMCommand.SKILL_4  # WbtDance
             
             self.state_cmd.vel_cmd[0] =  self.remote_controller.ly
             self.state_cmd.vel_cmd[1] =  self.remote_controller.lx * -1
@@ -125,7 +133,7 @@ class Controller:
 
             # imu_state quaternion: w, x, y, z
             quat = self.low_state.imu_state.quaternion
-            ang_vel = np.array([self.low_state.imu_state.gyroscope], dtype=np.float32)
+            ang_vel = np.array(self.low_state.imu_state.gyroscope, dtype=np.float32)
             
             gravity_orientation = get_gravity_orientation_real(quat)
             
@@ -161,9 +169,9 @@ class Controller:
                 print("control loop over time.")
                 self.counter_over_time += 1
             pass
-        except ValueError as e:
-            print(str(e))
-            pass
+        except Exception as e:
+            print(f"[SAFETY] Exception in run(): {e}, switching to PASSIVE.")
+            self.state_cmd.skill_cmd = FSMCommand.PASSIVE
         
         pass
         
