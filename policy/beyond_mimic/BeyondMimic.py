@@ -37,6 +37,8 @@ class BeyondMimic(FSMState):
         self.ref_body_quat_w = np.zeros((1, 14, 4), dtype=np.float32)
         self.ref_body_lin_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
         self.ref_body_ang_vel_w = np.zeros((1, 14, 3), dtype=np.float32)
+        self.holding_terminal_frame = False
+        self.auto_transition_pending = False
 
         print("BeyondMimic-like policy initializing ...")
 
@@ -72,6 +74,7 @@ class BeyondMimic(FSMState):
         self.num_obs = int(config["num_obs"])
         self.action_scale_lab = np.array(config["action_scale_lab"], dtype=np.float32)
         self.motion_length = config["motion_length"]
+        self.terminal_behavior = config.get("terminal_behavior", "hold_last_frame")
 
         if initial_load or getattr(self, "onnx_path", None) != new_onnx_path:
             self.onnx_path = new_onnx_path
@@ -88,6 +91,8 @@ class BeyondMimic(FSMState):
         self.ref_motion_phase = 0.
         self.motion_time = 0
         self.counter_step = 0
+        self.holding_terminal_frame = False
+        self.auto_transition_pending = False
 
         observation = {}
         observation[self.input_name[0]] = np.zeros((1, self.num_obs), dtype=np.float32)
@@ -228,7 +233,17 @@ class BeyondMimic(FSMState):
 
         # obs0 是网络观测，obs1 是当前时间步，用于输出参考动作信息
         observation[self.input_name[0]] = mimic_obs_tensor
-        observation[self.input_name[1]] = np.array([[self.counter_step]], dtype=np.float32)
+        policy_step = min(self.counter_step, self.motion_length - 1)
+        if self.counter_step >= self.motion_length:
+            if self.terminal_behavior == "switch_to_loco":
+                if not self.auto_transition_pending:
+                    print(f"[BeyondMimic] Motion length {self.motion_length} reached, switching to LOCO.")
+                    self.auto_transition_pending = True
+            else:
+                if not self.holding_terminal_frame:
+                    print(f"[BeyondMimic] Motion length {self.motion_length} reached, holding terminal frame.")
+                    self.holding_terminal_frame = True
+        observation[self.input_name[1]] = np.array([[policy_step]], dtype=np.float32)
         outputs_result = self.ort_session.run(None, observation)
 
         # 处理多个输出
@@ -258,11 +273,16 @@ class BeyondMimic(FSMState):
         self.ref_motion_phase = 0.
         self.motion_time = 0
         self.counter_step = 0
+        self.holding_terminal_frame = False
         
         print("exited")
 
     
     def checkChange(self):
+        if self.auto_transition_pending:
+            self.state_cmd.skill_cmd = FSMCommand.INVALID
+            self.auto_transition_pending = False
+            return FSMStateName.LOCOMODE
         if(self.state_cmd.skill_cmd == FSMCommand.LOCO):
             self.state_cmd.skill_cmd = FSMCommand.INVALID
             return FSMStateName.SKILL_COOLDOWN

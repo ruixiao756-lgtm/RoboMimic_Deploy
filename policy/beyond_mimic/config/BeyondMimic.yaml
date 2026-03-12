@@ -1,5 +1,6 @@
-onnx_path: "2026-01-05_01-36-13_dance_experiment12 copy.onnx"
+onnx_path: "2026-03-08_04-23-18_walkbvh_12288.onnx"
 motion_length: 140 
+terminal_behavior: "hold_last_frame"
 
 tau_limit: [88.0,  88.0, 88.0,
                    88.0,  88.0, 88.0,
