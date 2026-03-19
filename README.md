@@ -35,7 +35,9 @@ conda create -n robomimic python=3.8
 ### 1.2 Activate the Virtual Environment
 
 ```bash
+cd /home/abc/RoboMimic_Deploy
 conda activate robomimic
+python deploy_mujoco/deploy_mujoco.py
 ```
 
 ---

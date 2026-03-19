@@ -9,6 +9,7 @@ import onnx
 import onnxruntime
 import torch
 import os
+from typing import Optional
 
 
 class BeyondMimic(FSMState):
@@ -42,6 +43,49 @@ class BeyondMimic(FSMState):
 
         print("BeyondMimic-like policy initializing ...")
 
+    def _infer_motion_length_from_onnx(self) -> Optional[int]:
+        inferred_lengths = []
+        for node in self.onnx_model.graph.node:
+            if node.op_type != "Constant":
+                continue
+            for attr in node.attribute:
+                if attr.name != "value" or attr.t is None:
+                    continue
+                dims = list(attr.t.dims)
+                if len(dims) >= 2 and dims[1] in (29, 14):
+                    inferred_lengths.append(int(dims[0]))
+
+        if not inferred_lengths:
+            return None
+
+        return max(inferred_lengths)
+
+    def _resolve_motion_length(self, config_motion_length) -> int:
+        inferred_motion_length = self._infer_motion_length_from_onnx()
+
+        if config_motion_length is None:
+            config_motion_length = "auto"
+
+        if isinstance(config_motion_length, str):
+            normalized = config_motion_length.strip().lower()
+            if normalized == "auto":
+                if inferred_motion_length is None:
+                    raise ValueError(
+                        "motion_length=auto but failed to infer motion length from ONNX graph."
+                    )
+                return inferred_motion_length
+            config_motion_length = int(config_motion_length)
+
+        config_motion_length = int(config_motion_length)
+        if config_motion_length <= 0:
+            if inferred_motion_length is None:
+                raise ValueError(
+                    f"Invalid motion_length={config_motion_length}, and failed to infer from ONNX graph."
+                )
+            return inferred_motion_length
+
+        return config_motion_length
+
     def _resolve_onnx_path(self, onnx_path: str) -> str:
         candidates = []
         if os.path.isabs(onnx_path):
@@ -73,7 +117,6 @@ class BeyondMimic(FSMState):
         self.num_actions = int(config["num_actions"])
         self.num_obs = int(config["num_obs"])
         self.action_scale_lab = np.array(config["action_scale_lab"], dtype=np.float32)
-        self.motion_length = config["motion_length"]
         self.terminal_behavior = config.get("terminal_behavior", "hold_last_frame")
 
         if initial_load or getattr(self, "onnx_path", None) != new_onnx_path:
@@ -82,6 +125,9 @@ class BeyondMimic(FSMState):
             self.ort_session = onnxruntime.InferenceSession(self.onnx_path)
             self.input_name = [inpt.name for inpt in self.ort_session.get_inputs()]
             print(f"[BeyondMimic] ONNX reloaded: {os.path.basename(self.onnx_path)}")
+
+        self.motion_length = self._resolve_motion_length(config.get("motion_length", "auto"))
+        print(f"[BeyondMimic] Motion length: {self.motion_length}")
 
         print(f"[BeyondMimic] Config reloaded from {self.config_path}")
     
@@ -231,6 +277,22 @@ class BeyondMimic(FSMState):
         mimic_obs_tensor = torch.from_numpy(mimic_obs_buf).unsqueeze(0).cpu().numpy()
         observation = {}
 
+        if self.counter_step >= self.motion_length and self.terminal_behavior != "switch_to_loco":
+            if not self.holding_terminal_frame:
+                print(f"[BeyondMimic] Motion length {self.motion_length} reached, freezing terminal action.")
+                self.holding_terminal_frame = True
+
+            target_dof_pos_mj = np.zeros(29, dtype=np.float32)
+            target_dof_pos_lab = self.action * self.action_scale_lab + self.default_angles_lab
+            target_dof_pos_mj[self.mj2lab] = target_dof_pos_lab.squeeze(0)
+
+            self.policy_output.actions = target_dof_pos_mj
+            self.policy_output.kps[self.mj2lab] = self.kps_lab
+            self.policy_output.kds[self.mj2lab] = self.kds_lab
+
+            self.counter_step += 1
+            return
+
         # obs0 是网络观测，obs1 是当前时间步，用于输出参考动作信息
         observation[self.input_name[0]] = mimic_obs_tensor
         policy_step = min(self.counter_step, self.motion_length - 1)
@@ -239,10 +301,6 @@ class BeyondMimic(FSMState):
                 if not self.auto_transition_pending:
                     print(f"[BeyondMimic] Motion length {self.motion_length} reached, switching to LOCO.")
                     self.auto_transition_pending = True
-            else:
-                if not self.holding_terminal_frame:
-                    print(f"[BeyondMimic] Motion length {self.motion_length} reached, holding terminal frame.")
-                    self.holding_terminal_frame = True
         observation[self.input_name[1]] = np.array([[policy_step]], dtype=np.float32)
         outputs_result = self.ort_session.run(None, observation)
 
