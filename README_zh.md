@@ -117,6 +117,17 @@ ping -c 4 <机器人IP>
 - 现象：能连上但动作异常延迟  
   处理：检查交换机质量和链路速率，优先直连或使用稳定千兆交换机。
 
+### 6) 不连真机的 CSV 流程验证
+
+可在 `robomimic` 环境下直接验证“`SKILL_*` 开始记录，回到 `LOCOMODE` 自动落盘”流程：
+
+```bash
+cd /home/abc/RoboMimic_Deploy
+conda run -n robomimic python tools/verify_joint_csv_flow.py
+```
+
+若输出 `PASS: offline joint CSV flow verified`，说明 CSV 记录逻辑链路已打通。
+
 ---
 
 ## Policy 说明

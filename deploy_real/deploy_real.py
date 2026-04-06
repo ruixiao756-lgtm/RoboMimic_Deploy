@@ -10,8 +10,7 @@ import numpy as np
 import time
 import os
 import yaml
-import csv
-from datetime import datetime
+from common.joint_csv_logger import JointCsvLogger
 
 from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
 from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
@@ -68,86 +67,15 @@ class Controller:
         self.running = True
         self.counter_over_time = 0
 
-        # Joint-angle logging during one skill execution window.
-        self.joint_csv_log_enabled = bool(config.joint_csv_log_enabled)
-        self.joint_csv_log_dir = config.joint_csv_log_dir
-        if not os.path.isabs(self.joint_csv_log_dir):
-            self.joint_csv_log_dir = os.path.join(PROJECT_ROOT, self.joint_csv_log_dir)
-        self.joint_csv_log_sample_stride = max(1, int(config.joint_csv_log_sample_stride))
-        self._joint_log_active = False
-        self._joint_log_rows = []
-        self._joint_log_start_time = 0.0
-        self._joint_log_start_policy = ""
-        self._joint_log_start_cmd = ""
-        self._joint_log_episode_id = 0
-        self._joint_log_loop_idx = 0
-        if self.joint_csv_log_enabled:
-            os.makedirs(self.joint_csv_log_dir, exist_ok=True)
-            print(f"[JointCSV] Enabled. Output dir: {self.joint_csv_log_dir}")
-
-    def _is_skill_policy(self, policy_name: FSMStateName) -> bool:
-        return policy_name.name.startswith("SKILL_")
-
-    def _start_joint_log(self, policy_name: FSMStateName, trigger_cmd: FSMCommand):
-        self._joint_log_active = True
-        self._joint_log_rows = []
-        self._joint_log_start_time = time.time()
-        self._joint_log_start_policy = policy_name.name
-        self._joint_log_start_cmd = trigger_cmd.name
-        self._joint_log_loop_idx = 0
-        print(f"[JointCSV] Start recording from policy={self._joint_log_start_policy}, cmd={self._joint_log_start_cmd}")
-
-    def _append_joint_log_row(self, policy_name: FSMStateName, live_cmd: FSMCommand):
-        if not self._joint_log_active:
-            return
-
-        if (self._joint_log_loop_idx % self.joint_csv_log_sample_stride) != 0:
-            self._joint_log_loop_idx += 1
-            return
-
-        now = time.time()
-        row = {
-            "unix_time": now,
-            "elapsed_s": now - self._joint_log_start_time,
-            "policy": policy_name.name,
-            "skill_cmd": live_cmd.name,
-        }
-        for i in range(self.num_joints):
-            row[f"q_{i:02d}_rad"] = float(self.qj[i])
-        self._joint_log_rows.append(row)
-        self._joint_log_loop_idx += 1
-
-    def _flush_joint_log(self, reason: str):
-        if not self._joint_log_active:
-            return
-
-        self._joint_log_active = False
-        if len(self._joint_log_rows) == 0:
-            print(f"[JointCSV] No samples collected, skip file write. reason={reason}")
-            return
-
-        self._joint_log_episode_id += 1
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_name = (
-            f"joint_log_{ts}_ep{self._joint_log_episode_id:03d}_"
-            f"{self._joint_log_start_policy}_{self._joint_log_start_cmd}_to_{reason}.csv"
+        joint_csv_log_dir = config.joint_csv_log_dir
+        if not os.path.isabs(joint_csv_log_dir):
+            joint_csv_log_dir = os.path.join(PROJECT_ROOT, joint_csv_log_dir)
+        self.joint_logger = JointCsvLogger(
+            enabled=config.joint_csv_log_enabled,
+            output_dir=joint_csv_log_dir,
+            num_joints=self.num_joints,
+            sample_stride=config.joint_csv_log_sample_stride,
         )
-        file_path = os.path.join(self.joint_csv_log_dir, file_name)
-
-        fieldnames = ["unix_time", "elapsed_s", "policy", "skill_cmd"]
-        fieldnames.extend([f"q_{i:02d}_rad" for i in range(self.num_joints)])
-
-        with open(file_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(self._joint_log_rows)
-
-        duration = self._joint_log_rows[-1]["elapsed_s"]
-        print(
-            f"[JointCSV] Saved {len(self._joint_log_rows)} rows, duration={duration:.3f}s, "
-            f"path={file_path}"
-        )
-        self._joint_log_rows = []
         
         
     def LowStateHgHandler(self, msg: LowStateHG):
@@ -229,21 +157,12 @@ class Controller:
             
             self.FSM_controller.run()
             cur_policy_name = self.FSM_controller.cur_policy.name
-
-            if self.joint_csv_log_enabled:
-                if (not self._joint_log_active) and self._is_skill_policy(cur_policy_name):
-                    self._start_joint_log(cur_policy_name, trigger_cmd)
-
-                if self._joint_log_active:
-                    self._append_joint_log_row(cur_policy_name, self.state_cmd.skill_cmd)
-
-                    if not self._is_skill_policy(cur_policy_name):
-                        if cur_policy_name == FSMStateName.LOCOMODE:
-                            self._flush_joint_log("loco")
-                        elif cur_policy_name == FSMStateName.PASSIVE:
-                            self._flush_joint_log("passive")
-                        elif cur_policy_name == FSMStateName.FIXEDPOSE:
-                            self._flush_joint_log("fixedpose")
+            self.joint_logger.on_policy_step(
+                policy_name=cur_policy_name,
+                trigger_cmd=trigger_cmd,
+                live_cmd=self.state_cmd.skill_cmd,
+                joint_positions=self.qj,
+            )
 
             policy_output_action = self.policy_output.actions.copy()
             kps = self.policy_output.kps.copy()
@@ -273,8 +192,7 @@ class Controller:
         except Exception as e:
             print(f"[SAFETY] Exception in run(): {e}, switching to PASSIVE.")
             self.state_cmd.skill_cmd = FSMCommand.PASSIVE
-            if self.joint_csv_log_enabled and self._joint_log_active:
-                self._flush_joint_log("exception")
+            self.joint_logger.flush_if_active("exception")
         
         pass
         
@@ -295,8 +213,7 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             break
 
-    if controller.joint_csv_log_enabled and controller._joint_log_active:
-        controller._flush_joint_log("program_exit")
+    controller.joint_logger.flush_if_active("program_exit")
     
     create_damping_cmd(controller.low_cmd)
     controller.send_cmd(controller.low_cmd)
