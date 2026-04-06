@@ -1,3 +1,14 @@
 xml_path: "g1_description/scene.xml"
 simulation_dt: 0.003
 control_decimation: 7  # 从7提高到9，使动作速度约降低到0.78倍 (7/9 ≈ 0.78)
+
+recording:
+  enabled: false
+  auto_start_on_skill: true
+  stop_on_loco: true
+  output_dir: "logs/mujoco_videos"
+  file_prefix: "mujoco_skill"
+  fps: 30
+  width: 1280
+  height: 720
+  capture_every_n_steps: 0  # 0 means auto-select based on simulation_dt and fps

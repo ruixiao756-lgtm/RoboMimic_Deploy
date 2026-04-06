@@ -11,16 +11,122 @@ import mujoco
 import numpy as np
 import yaml
 import os
+import re
 from common.ctrlcomp import *
 from FSM.FSM import *
 from common.utils import get_gravity_orientation, FSMCommand, FSMStateName
 from common.joystick import JoyStick, JoystickButton
+
+try:
+    import imageio.v2 as imageio
+    IMAGEIO_AVAILABLE = True
+except ImportError:
+    imageio = None
+    IMAGEIO_AVAILABLE = False
 
 
 
 def pd_control(target_q, q, kp, target_dq, dq, kd):
     """Calculates torques from position commands"""
     return (target_q - q) * kp + (target_dq - dq) * kd
+
+
+class MjVideoRecorder:
+    def __init__(self, model, data, sim_dt, recording_cfg):
+        self.model = model
+        self.data = data
+        self.enabled = bool(recording_cfg.get("enabled", False))
+        self.auto_start_on_skill = bool(recording_cfg.get("auto_start_on_skill", True))
+        self.stop_on_loco = bool(recording_cfg.get("stop_on_loco", True))
+        self.output_dir = os.path.join(PROJECT_ROOT, recording_cfg.get("output_dir", "logs/mujoco_videos"))
+        self.file_prefix = str(recording_cfg.get("file_prefix", "mujoco_skill")).strip() or "mujoco_skill"
+        self.fps = int(recording_cfg.get("fps", 30))
+        self.width = int(recording_cfg.get("width", 1280))
+        self.height = int(recording_cfg.get("height", 720))
+
+        configured_capture_step = int(recording_cfg.get("capture_every_n_steps", 0))
+        auto_capture_step = max(1, int(round(1.0 / max(sim_dt * self.fps, 1e-6))))
+        self.capture_every_n_steps = configured_capture_step if configured_capture_step > 0 else auto_capture_step
+
+        self.writer = None
+        self.renderer = None
+        self.recording = False
+        self.frame_counter = 0
+        self.current_video_path = ""
+
+        if self.enabled and not IMAGEIO_AVAILABLE:
+            print("[Recorder] imageio is not available, video recording is disabled.")
+            self.enabled = False
+
+    def _safe_name(self, raw_name):
+        return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(raw_name)).strip("_") or "skill"
+
+    def start(self, trigger_name):
+        if not self.enabled:
+            return
+
+        if self.recording:
+            self.stop(reason="restart")
+
+        os.makedirs(self.output_dir, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        skill_tag = self._safe_name(trigger_name)
+        self.current_video_path = os.path.join(
+            self.output_dir,
+            f"{self.file_prefix}_{timestamp}_{skill_tag}.mp4",
+        )
+
+        try:
+            self.renderer = mujoco.Renderer(self.model, height=self.height, width=self.width)
+            self.writer = imageio.get_writer(
+                self.current_video_path,
+                fps=self.fps,
+                codec="libx264",
+                macro_block_size=None,
+            )
+            self.recording = True
+            self.frame_counter = 0
+            print(f"[Recorder] Recording started: {self.current_video_path}")
+        except Exception as exc:
+            self.recording = False
+            self.writer = None
+            self.renderer = None
+            print(f"[Recorder] Failed to start recording: {exc}")
+
+    def capture(self):
+        if not self.recording:
+            return
+
+        self.frame_counter += 1
+        if self.frame_counter % self.capture_every_n_steps != 0:
+            return
+
+        try:
+            self.renderer.update_scene(self.data)
+            frame = self.renderer.render()
+            self.writer.append_data(frame)
+        except Exception as exc:
+            print(f"[Recorder] Capture failed, stopping recorder: {exc}")
+            self.stop(reason="capture_error")
+
+    def stop(self, reason=""):
+        if not self.recording and self.writer is None and self.renderer is None:
+            return
+
+        video_path = self.current_video_path
+        try:
+            if self.writer is not None:
+                self.writer.close()
+        finally:
+            self.writer = None
+            if self.renderer is not None:
+                self.renderer.close()
+            self.renderer = None
+            was_recording = self.recording
+            self.recording = False
+            if was_recording:
+                suffix = f" (reason: {reason})" if reason else ""
+                print(f"[Recorder] Recording saved: {video_path}{suffix}")
 
 if __name__ == "__main__":
     # Wayland 下 GLFW/MuJoCo viewer 的鼠标拖拽/点击有时会异常；
@@ -39,6 +145,7 @@ if __name__ == "__main__":
         xml_path = os.path.join(PROJECT_ROOT, config["xml_path"])
         simulation_dt = config["simulation_dt"]
         control_decimation = config["control_decimation"]
+        recording_cfg = config.get("recording", {})
         
     m = mujoco.MjModel.from_xml_path(xml_path)
     d = mujoco.MjData(m)
@@ -53,6 +160,7 @@ if __name__ == "__main__":
     state_cmd = StateAndCmd(num_joints)
     policy_output = PolicyOutput(num_joints)
     FSM_controller = FSM(state_cmd, policy_output)
+    recorder = MjVideoRecorder(m, d, simulation_dt, recording_cfg)
     
     joystick = get_joystick()
     # 提示：Wayland 下 MuJoCo viewer 的鼠标按钮可能失效，提供键盘/手柄快捷键
@@ -66,6 +174,7 @@ if __name__ == "__main__":
             try:
                 # 必须先更新输入状态
                 joystick.update()
+                triggered_skill_name = ""
 
                 # MuJoCo 仿真硬重置：回到 XML 的初始 qpos/qvel（相当于“重新放置机器人”）
                 # - 键盘：F5（在 keyboard_joystick.py 映射为 R3）
@@ -79,11 +188,13 @@ if __name__ == "__main__":
                     kds[:] = 0.0
                     state_cmd.vel_cmd[:] = 0.0
                     state_cmd.skill_cmd = FSMCommand.LOCO
+                    recorder.stop(reason="hard_reset")
                     print('>>> MuJoCo 硬重置完成：已重新放置机器人，并切回 LOCO')
                 
                 # 终止程序（按下 SELECT）
                 if joystick.is_button_just_pressed(JoystickButton.SELECT):
                     Running = False
+                    recorder.stop(reason="program_exit")
 
                 # 更灵敏的触发：使用按下边缘 (just_pressed)
                 if joystick.is_button_just_pressed(JoystickButton.L3):
@@ -104,9 +215,11 @@ if __name__ == "__main__":
                     if FSM_controller.cur_policy.name == FSMStateName.SKILL_Dance:
                         FSM_controller.cur_policy.exit()
                         FSM_controller.cur_policy.enter()
+                        triggered_skill_name = "SKILL_1_Dance"
                         print(">>> 重新启动: SKILL_1 舞蹈模式")
                     else:
                         state_cmd.skill_cmd = FSMCommand.SKILL_1
+                        triggered_skill_name = "SKILL_1_Dance"
                         print(">>> 切换到: SKILL_1 舞蹈模式")
 
                 # SKILL_2 (KungFu): R1 + Y
@@ -114,9 +227,11 @@ if __name__ == "__main__":
                     if FSM_controller.cur_policy.name == FSMStateName.SKILL_KungFu:
                         FSM_controller.cur_policy.exit()
                         FSM_controller.cur_policy.enter()
+                        triggered_skill_name = "SKILL_2_KungFu"
                         print(">>> 重新启动: SKILL_2 武术模式")
                     else:
                         state_cmd.skill_cmd = FSMCommand.SKILL_2
+                        triggered_skill_name = "SKILL_2_KungFu"
                         print(">>> 切换到: SKILL_2 武术模式")
 
                 # SKILL_3 (WBT_DANCE/Kick): R1 + B
@@ -124,9 +239,11 @@ if __name__ == "__main__":
                     if FSM_controller.cur_policy.name == FSMStateName.SKILL_WBT_DANCE:
                         FSM_controller.cur_policy.exit()
                         FSM_controller.cur_policy.enter()
+                        triggered_skill_name = "SKILL_3_WBT_DANCE"
                         print(">>> 重新启动: SKILL_3 WBT_DANCE")
                     else:
                         state_cmd.skill_cmd = FSMCommand.SKILL_3
+                        triggered_skill_name = "SKILL_3_WBT_DANCE"
                         print(">>> 切换到: SKILL_3 WBT_DANCE (whole_body_tracking 导出策略)")
 
                 # SKILL_4 (WBT_DANCE variant): L1 + Y
@@ -134,9 +251,11 @@ if __name__ == "__main__":
                     if FSM_controller.cur_policy.name == FSMStateName.SKILL_WBT_DANCE:
                         FSM_controller.cur_policy.exit()
                         FSM_controller.cur_policy.enter()
+                        triggered_skill_name = "SKILL_4_WBT_DANCE"
                         print(">>> 重新启动: SKILL_4 WBT_DANCE")
                     else:
                         state_cmd.skill_cmd = FSMCommand.SKILL_4
+                        triggered_skill_name = "SKILL_4_WBT_DANCE"
                         print(">>> 切换到: SKILL_4 WBT_DANCE (whole_body_tracking 导出策略)")
 
                 # SKILL_5 (BeyondMimic): L1 + HOME / 键盘 Tab + T
@@ -144,10 +263,15 @@ if __name__ == "__main__":
                     if FSM_controller.cur_policy.name == FSMStateName.SKILL_BEYOND_MIMIC:
                         FSM_controller.cur_policy.exit()
                         FSM_controller.cur_policy.enter()
+                        triggered_skill_name = "SKILL_5_BeyondMimic"
                         print(">>> 重新启动: SKILL_5 BeyondMimic")
                     else:
                         state_cmd.skill_cmd = FSMCommand.SKILL_5
+                        triggered_skill_name = "SKILL_5_BeyondMimic"
                         print(">>> 切换到: SKILL_5 BeyondMimic (walking ONNX)")
+
+                if recorder.auto_start_on_skill and triggered_skill_name:
+                    recorder.start(triggered_skill_name)
                 
                 state_cmd.vel_cmd[0] = -joystick.get_axis_value(1)
                 state_cmd.vel_cmd[1] = -joystick.get_axis_value(0)
@@ -156,8 +280,10 @@ if __name__ == "__main__":
                 tau = pd_control(policy_output_action, d.qpos[7:], kps, np.zeros_like(kps), d.qvel[6:], kds)
                 d.ctrl[:] = tau
                 mujoco.mj_step(m, d)
+                recorder.capture()
                 sim_counter += 1
                 if sim_counter % control_decimation == 0:
+                    prev_policy_name = FSM_controller.cur_policy.name
                     
                     qj = d.qpos[7:]
                     dqj = d.qvel[6:]
@@ -173,6 +299,15 @@ if __name__ == "__main__":
                     state_cmd.ang_vel = omega.copy()
                     
                     FSM_controller.run()
+
+                    if (
+                        recorder.recording
+                        and recorder.stop_on_loco
+                        and prev_policy_name != FSMStateName.LOCOMODE
+                        and FSM_controller.cur_policy.name == FSMStateName.LOCOMODE
+                    ):
+                        recorder.stop(reason="entered_loco")
+
                     policy_output_action = policy_output.actions.copy()
                     kps = policy_output.kps.copy()
                     kds = policy_output.kds.copy()
@@ -183,4 +318,6 @@ if __name__ == "__main__":
             time_until_next_step = m.opt.timestep - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
+
+        recorder.stop(reason="viewer_closed")
         
