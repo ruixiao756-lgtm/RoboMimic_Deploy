@@ -1,4 +1,4 @@
-onnx_path: "2026-03-09_18-06-25_my_dance_project_A100_robust1.onnx"
+onnx_path: "2026-03-12_11-40-45_tennis1.onnx"
 motion_length: "auto"
 terminal_behavior: "switch_to_loco"
 
