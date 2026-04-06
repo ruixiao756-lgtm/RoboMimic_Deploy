@@ -16,4 +16,9 @@ class Config:
             self.lowstate_topic = config["lowstate_topic"]
             self.control_dt = config["control_dt"]
             self.error_over_time = config["error_over_time"]
+
+            joint_csv_log = config.get("joint_csv_log", {})
+            self.joint_csv_log_enabled = joint_csv_log.get("enabled", True)
+            self.joint_csv_log_dir = joint_csv_log.get("output_dir", "logs/real_joint_angles")
+            self.joint_csv_log_sample_stride = joint_csv_log.get("sample_stride", 1)
             

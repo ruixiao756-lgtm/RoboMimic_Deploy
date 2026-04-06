@@ -57,7 +57,17 @@ lowcmd_topic: "rt/lowcmd"
 lowstate_topic: "rt/lowstate"
 control_dt: 0.02
 error_over_time: 5
+
+joint_csv_log:
+  enabled: true
+  output_dir: "logs/real_joint_angles"
+  sample_stride: 1
 ```
+
+说明：
+- 开启后会在一次技能执行窗口内自动记录 29 个关节角（单位：rad）。
+- 技能窗口定义为：进入任意 `SKILL_*` 状态开始，切回 `LOCOMODE` 结束。
+- 每次窗口结束会自动写一份 CSV 到 `output_dir`。
 
 ### 5) 常见网络配置与排查（真机必看）
 
