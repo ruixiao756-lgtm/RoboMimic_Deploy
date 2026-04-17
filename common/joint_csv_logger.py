@@ -2,15 +2,23 @@ import csv
 import os
 import time
 from datetime import datetime
-from typing import Iterable
+from typing import Iterable, Optional, Sequence, Set
 
 
 class JointCsvLogger:
-    def __init__(self, enabled: bool, output_dir: str, num_joints: int, sample_stride: int = 1):
+    def __init__(
+        self,
+        enabled: bool,
+        output_dir: str,
+        num_joints: int,
+        sample_stride: int = 1,
+        target_policy_names: Optional[Sequence[str]] = None,
+    ):
         self.enabled = bool(enabled)
         self.output_dir = output_dir
         self.num_joints = int(num_joints)
         self.sample_stride = max(1, int(sample_stride))
+        self.target_policy_names = self._normalize_policy_names(target_policy_names)
 
         self._active = False
         self._rows = []
@@ -22,15 +30,34 @@ class JointCsvLogger:
 
         if self.enabled:
             os.makedirs(self.output_dir, exist_ok=True)
-            print(f"[JointCSV] Enabled. Output dir: {self.output_dir}")
+            if self.target_policy_names is None:
+                print(f"[JointCSV] Enabled. Output dir: {self.output_dir}")
+            else:
+                targets = ", ".join(sorted(self.target_policy_names))
+                print(f"[JointCSV] Enabled for [{targets}]. Output dir: {self.output_dir}")
 
     @staticmethod
     def _name(x) -> str:
         return x.name if hasattr(x, "name") else str(x)
 
+    @classmethod
+    def _normalize_policy_names(cls, policy_names: Optional[Sequence[str]]) -> Optional[Set[str]]:
+        if policy_names is None:
+            return None
+
+        if isinstance(policy_names, str):
+            policy_names = [policy_names]
+
+        return {cls._name(policy_name) for policy_name in policy_names}
+
     @staticmethod
     def _is_skill_policy_name(policy_name: str) -> bool:
         return policy_name.startswith("SKILL_")
+
+    def _should_record_policy(self, policy_name: str) -> bool:
+        if self.target_policy_names is None:
+            return self._is_skill_policy_name(policy_name)
+        return policy_name in self.target_policy_names
 
     @property
     def active(self) -> bool:
@@ -109,16 +136,21 @@ class JointCsvLogger:
         policy_name_str = self._name(policy_name)
         trigger_cmd_name = self._name(trigger_cmd)
         live_cmd_name = self._name(live_cmd)
+        should_record_policy = self._should_record_policy(policy_name_str)
+        start_cmd_name = trigger_cmd_name if trigger_cmd_name != "INVALID" else policy_name_str
 
-        if (not self._active) and self._is_skill_policy_name(policy_name_str):
-            self._start(policy_name_str, trigger_cmd_name)
+        if (not self._active) and should_record_policy:
+            self._start(policy_name_str, start_cmd_name)
 
         if not self._active:
             return ""
 
+        if self.target_policy_names is not None and (not should_record_policy):
+            return self._flush(policy_name_str.lower())
+
         self._append_row(policy_name_str, live_cmd_name, joint_positions)
 
-        if self._is_skill_policy_name(policy_name_str):
+        if should_record_policy:
             return ""
 
         if policy_name_str == "LOCOMODE":

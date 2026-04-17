@@ -62,11 +62,14 @@ joint_csv_log:
   enabled: true
   output_dir: "logs/real_joint_angles"
   sample_stride: 1
+  target_policies:
+    - "SKILL_BEYOND_MIMIC"
 ```
 
 说明：
-- 开启后会在一次技能执行窗口内自动记录 29 个关节角（单位：rad）。
-- 技能窗口定义为：进入任意 `SKILL_*` 状态开始，切回 `LOCOMODE` 结束。
+- 开启后会在 BeyondMimic 执行期间自动记录 29 个关节角（单位：rad）。
+- 默认仅记录 `SKILL_BEYOND_MIMIC`；可通过 `target_policies` 修改目标策略列表。
+- 记录窗口定义为：BeyondMimic 实际开始执行时开始，退出 BeyondMimic 或热重载重启时结束并落盘。
 - 每次窗口结束会自动写一份 CSV 到 `output_dir`。
 
 ### 5) 常见网络配置与排查（真机必看）
@@ -119,7 +122,7 @@ ping -c 4 <机器人IP>
 
 ### 6) 不连真机的 CSV 流程验证
 
-可在 `robomimic` 环境下直接验证“`SKILL_*` 开始记录，回到 `LOCOMODE` 自动落盘”流程：
+可在 `robomimic` 环境下直接验证“BeyondMimic 开始记录，退出 BeyondMimic 自动落盘”流程：
 
 ```bash
 cd /home/abc/RoboMimic_Deploy

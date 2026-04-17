@@ -21,4 +21,11 @@ class Config:
             self.joint_csv_log_enabled = joint_csv_log.get("enabled", True)
             self.joint_csv_log_dir = joint_csv_log.get("output_dir", "logs/real_joint_angles")
             self.joint_csv_log_sample_stride = joint_csv_log.get("sample_stride", 1)
+            target_policies = joint_csv_log.get("target_policies", ["SKILL_BEYOND_MIMIC"])
+            if target_policies is None:
+                self.joint_csv_log_target_policies = None
+            elif isinstance(target_policies, str):
+                self.joint_csv_log_target_policies = [target_policies]
+            else:
+                self.joint_csv_log_target_policies = list(target_policies)
             

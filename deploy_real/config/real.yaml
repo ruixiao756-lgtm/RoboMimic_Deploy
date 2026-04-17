@@ -12,3 +12,5 @@ joint_csv_log:
   enabled: true
   output_dir: "logs/real_joint_angles"
   sample_stride: 1
+  target_policies:
+    - "SKILL_BEYOND_MIMIC"

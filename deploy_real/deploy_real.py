@@ -75,6 +75,7 @@ class Controller:
             output_dir=joint_csv_log_dir,
             num_joints=self.num_joints,
             sample_stride=config.joint_csv_log_sample_stride,
+            target_policy_names=config.joint_csv_log_target_policies,
         )
         
         
@@ -126,6 +127,7 @@ class Controller:
             if self.remote_controller.is_button_pressed(KeyMap.B) and self.remote_controller.is_button_pressed(KeyMap.R1):
                 if self.FSM_controller.cur_policy.name == FSMStateName.SKILL_BEYOND_MIMIC:
                     # 已在 BeyondMimic：直接重启（触发 _reload_config 热重载）
+                    self.joint_logger.flush_if_active("restart")
                     self.FSM_controller.cur_policy.exit()
                     self.FSM_controller.cur_policy.enter()
                     print("[BeyondMimic] Restarted (hot-reload config/ONNX)")
@@ -155,10 +157,9 @@ class Controller:
             self.state_cmd.ang_vel = ang_vel.copy()
             self.state_cmd.base_quat = quat
             
-            self.FSM_controller.run()
-            cur_policy_name = self.FSM_controller.cur_policy.name
+            executed_policy_name = self.FSM_controller.run()
             self.joint_logger.on_policy_step(
-                policy_name=cur_policy_name,
+                policy_name=executed_policy_name,
                 trigger_cmd=trigger_cmd,
                 live_cmd=self.state_cmd.skill_cmd,
                 joint_positions=self.qj,

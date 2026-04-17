@@ -45,13 +45,16 @@ class FSM:
         print("initalized all policies!!!")
         
         self.cur_policy = self.passive_mode
+        self.last_executed_policy_name = self.cur_policy.name
         print("current policy is ", self.cur_policy.name_str)
         
         
         
     def run(self):
         start_time = time.time()
+        executed_policy = self.cur_policy
         if(self.FSMmode == FSMMode.NORMAL): 
+            executed_policy = self.cur_policy
             self.cur_policy.run()
             nextPolicyName = self.cur_policy.checkChange()
             
@@ -65,7 +68,11 @@ class FSM:
         elif(self.FSMmode == FSMMode.CHANGE):
             self.cur_policy.enter()
             self.FSMmode = FSMMode.NORMAL
+            executed_policy = self.cur_policy
             self.cur_policy.run()
+
+        self.last_executed_policy_name = executed_policy.name
+        return self.last_executed_policy_name
             
         # self.absoluteWait(self.cur_policy.control_horzion,self.start_time)
         end_time = time.time()
