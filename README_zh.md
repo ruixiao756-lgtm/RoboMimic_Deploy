@@ -221,7 +221,7 @@ python deploy_real/deploy_real.py
 ```bash
 USE_KEYBOARD=1 python deploy_mujoco/deploy_mujoco.py
 ```
-
+  
 按钮映射：
 - `Enter` = Start
 - `Backspace` = Select
