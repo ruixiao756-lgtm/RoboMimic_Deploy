@@ -97,6 +97,16 @@ class Controller:
             time.sleep(self.config.control_dt)
         print("Successfully connected to the robot.")
 
+    def _joint_log_session_tag(self, policy_name) -> str:
+        if policy_name != FSMStateName.SKILL_BEYOND_MIMIC:
+            return ""
+
+        onnx_path = getattr(self.FSM_controller.beyond_mimic_policy, "onnx_path", "")
+        if not onnx_path:
+            return ""
+
+        return Path(onnx_path).stem
+
     def zero_torque_state(self):
         print("Enter zero torque state.")
         print("Waiting for the start signal...")
@@ -118,13 +128,13 @@ class Controller:
                 self.state_cmd.skill_cmd = FSMCommand.PASSIVE
             if self.remote_controller.is_button_pressed(KeyMap.start):
                 self.state_cmd.skill_cmd = FSMCommand.POS_RESET
-            if self.remote_controller.is_button_pressed(KeyMap.A) and self.remote_controller.is_button_pressed(KeyMap.R1):
+            if self.remote_controller.consume_button_press(KeyMap.A) and self.remote_controller.is_button_pressed(KeyMap.R1):
                 self.state_cmd.skill_cmd = FSMCommand.LOCO
-            if self.remote_controller.is_button_pressed(KeyMap.X) and self.remote_controller.is_button_pressed(KeyMap.R1):
+            if self.remote_controller.consume_button_press(KeyMap.X) and self.remote_controller.is_button_pressed(KeyMap.R1):
                 self.state_cmd.skill_cmd = FSMCommand.SKILL_1
-            if self.remote_controller.is_button_pressed(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.R1):
+            if self.remote_controller.consume_button_press(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.R1):
                 self.state_cmd.skill_cmd = FSMCommand.SKILL_2
-            if self.remote_controller.is_button_pressed(KeyMap.B) and self.remote_controller.is_button_pressed(KeyMap.R1):
+            if self.remote_controller.consume_button_press(KeyMap.B) and self.remote_controller.is_button_pressed(KeyMap.R1):
                 if self.FSM_controller.cur_policy.name == FSMStateName.SKILL_BEYOND_MIMIC:
                     # 已在 BeyondMimic：直接重启（触发 _reload_config 热重载）
                     self.joint_logger.flush_if_active("restart")
@@ -133,7 +143,7 @@ class Controller:
                     print("[BeyondMimic] Restarted (hot-reload config/ONNX)")
                 else:
                     self.state_cmd.skill_cmd = FSMCommand.SKILL_5  # BeyondMimic
-            if self.remote_controller.is_button_pressed(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.L1):
+            if self.remote_controller.consume_button_press(KeyMap.Y) and self.remote_controller.is_button_pressed(KeyMap.L1):
                 self.state_cmd.skill_cmd = FSMCommand.SKILL_4  # WbtDance
             
             self.state_cmd.vel_cmd[0] =  self.remote_controller.ly
@@ -163,6 +173,7 @@ class Controller:
                 trigger_cmd=trigger_cmd,
                 live_cmd=self.state_cmd.skill_cmd,
                 joint_positions=self.qj,
+                session_tag=self._joint_log_session_tag(executed_policy_name),
             )
 
             policy_output_action = self.policy_output.actions.copy()

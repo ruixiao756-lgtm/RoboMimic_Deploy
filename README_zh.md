@@ -190,7 +190,7 @@ conda activate robomimic
 python deploy_real/deploy_real.py
 ```
 
-流程建议：
+流程建议：L2+B,
 1. 机器人吊挂，`L2+R2` 进调试模式
 2. `START` 进入位控（FixedPose）
 3. `R1+A` 进入行走（LocoMode）

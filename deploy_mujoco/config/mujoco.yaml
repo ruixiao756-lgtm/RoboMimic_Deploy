@@ -12,3 +12,9 @@ recording:
   width: 1280
   height: 720
   capture_every_n_steps: 0  # 0 means auto-select based on simulation_dt and fps
+  follow_camera:
+    enabled: true
+    track_body: "pelvis"   # 跟随的 body 名称
+    distance: 3.0          # 距 body 的距离（米）
+    azimuth: 135.0         # 水平角（度）：180=正面朝向机器人
+    elevation: -20.0       # 俯仰角（度）：负值=稍俯视

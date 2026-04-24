@@ -25,6 +25,8 @@ class JointCsvLogger:
         self._start_time = 0.0
         self._start_policy = ""
         self._start_cmd = ""
+        self._session_tag = ""
+        self._start_datetime = None
         self._episode_id = 0
         self._loop_idx = 0
 
@@ -59,18 +61,51 @@ class JointCsvLogger:
             return self._is_skill_policy_name(policy_name)
         return policy_name in self.target_policy_names
 
+    @staticmethod
+    def _normalize_session_tag(session_tag: Optional[str]) -> str:
+        if session_tag is None:
+            return ""
+
+        normalized = str(session_tag).strip()
+        if not normalized:
+            return ""
+
+        normalized = normalized.replace(os.sep, "_")
+        if os.altsep:
+            normalized = normalized.replace(os.altsep, "_")
+        return normalized
+
     @property
     def active(self) -> bool:
         return self._active
 
-    def _start(self, policy_name: str, trigger_cmd_name: str) -> None:
+    def _start(self, policy_name: str, trigger_cmd_name: str, session_tag: Optional[str] = None) -> None:
         self._active = True
         self._rows = []
         self._start_time = time.time()
+        self._start_datetime = datetime.now()
         self._start_policy = policy_name
         self._start_cmd = trigger_cmd_name
+        self._session_tag = self._normalize_session_tag(session_tag)
         self._loop_idx = 0
-        print(f"[JointCSV] Start recording from policy={policy_name}, cmd={trigger_cmd_name}")
+        if self._session_tag:
+            print(
+                f"[JointCSV] Start recording from policy={policy_name}, cmd={trigger_cmd_name}, "
+                f"session={self._session_tag}"
+            )
+        else:
+            print(f"[JointCSV] Start recording from policy={policy_name}, cmd={trigger_cmd_name}")
+
+    def _resolve_output_dir(self) -> str:
+        if not self._session_tag:
+            return self.output_dir
+
+        if self._start_datetime is None:
+            date_dir = datetime.now().strftime("%Y%m%d")
+        else:
+            date_dir = self._start_datetime.strftime("%Y%m%d")
+
+        return os.path.join(self.output_dir, self._session_tag, date_dir)
 
     def _append_row(self, policy_name: str, live_cmd_name: str, joint_positions: Iterable[float]) -> None:
         if (self._loop_idx % self.sample_stride) != 0:
@@ -103,11 +138,13 @@ class JointCsvLogger:
 
         self._episode_id += 1
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = self._resolve_output_dir()
+        os.makedirs(output_dir, exist_ok=True)
         file_name = (
             f"joint_log_{ts}_ep{self._episode_id:03d}_"
             f"{self._start_policy}_{self._start_cmd}_to_{reason}.csv"
         )
-        file_path = os.path.join(self.output_dir, file_name)
+        file_path = os.path.join(output_dir, file_name)
 
         fieldnames = ["unix_time", "elapsed_s", "policy", "skill_cmd"]
         fieldnames.extend([f"q_{i:02d}_rad" for i in range(self.num_joints)])
@@ -123,9 +160,18 @@ class JointCsvLogger:
             f"path={file_path}"
         )
         self._rows = []
+        self._session_tag = ""
+        self._start_datetime = None
         return file_path
 
-    def on_policy_step(self, policy_name, trigger_cmd, live_cmd, joint_positions: Iterable[float]) -> str:
+    def on_policy_step(
+        self,
+        policy_name,
+        trigger_cmd,
+        live_cmd,
+        joint_positions: Iterable[float],
+        session_tag: Optional[str] = None,
+    ) -> str:
         """Update logger for one control step.
 
         Returns file path when a csv is flushed in this step, otherwise empty string.
@@ -140,7 +186,7 @@ class JointCsvLogger:
         start_cmd_name = trigger_cmd_name if trigger_cmd_name != "INVALID" else policy_name_str
 
         if (not self._active) and should_record_policy:
-            self._start(policy_name_str, start_cmd_name)
+            self._start(policy_name_str, start_cmd_name, session_tag=session_tag)
 
         if not self._active:
             return ""

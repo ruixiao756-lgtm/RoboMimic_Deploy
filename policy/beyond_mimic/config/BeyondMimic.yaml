@@ -1,4 +1,4 @@
-onnx_path: "2026-03-21_08-43-57_dance2origin.onnx"
+onnx_path: "2026-02-22_17-05-13_stand_experiment1.onnx"
 motion_length: "auto"
 terminal_behavior: "switch_to_loco"
 

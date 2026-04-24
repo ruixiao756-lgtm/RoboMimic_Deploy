@@ -11,6 +11,7 @@ import glob
 import os
 import tempfile
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +25,7 @@ from common.utils import FSMCommand, FSMStateName
 def main() -> int:
     num_joints = 29
     target_policy = FSMStateName.SKILL_BEYOND_MIMIC
+    model_stem = "2026-02-22_17-05-13_stand_experiment1"
 
     with tempfile.TemporaryDirectory(prefix="joint_csv_verify_") as tmp_dir:
         logger = JointCsvLogger(
@@ -50,6 +52,7 @@ def main() -> int:
                 trigger_cmd=FSMCommand.SKILL_5,
                 live_cmd=FSMCommand.INVALID,
                 joint_positions=q,
+                session_tag=model_stem,
             )
 
         q = np.linspace(0.5, 1.5, num_joints, dtype=np.float32)
@@ -66,9 +69,24 @@ def main() -> int:
         if not os.path.exists(csv_path):
             raise RuntimeError(f"CSV path not found: {csv_path}")
 
+        csv_path_obj = Path(csv_path)
+        if csv_path_obj.parent.parent.name != model_stem:
+            raise RuntimeError(
+                f"CSV was not placed under model folder: {csv_path_obj.parent.parent.name}"
+            )
+
+        if csv_path_obj.parent.name != datetime.now().strftime("%Y%m%d"):
+            raise RuntimeError(
+                f"CSV was not placed under current date folder: {csv_path_obj.parent.name}"
+            )
+
         matched = glob.glob(os.path.join(tmp_dir, "joint_log_*.csv"))
+        if len(matched) != 0:
+            raise RuntimeError("Expected CSV files to be stored in model/date subdirectories")
+
+        matched = glob.glob(os.path.join(tmp_dir, "*", "*", "joint_log_*.csv"))
         if len(matched) != 1:
-            raise RuntimeError(f"Expected exactly 1 CSV file, got {len(matched)}")
+            raise RuntimeError(f"Expected exactly 1 CSV file in model/date subdirectories, got {len(matched)}")
 
         with open(csv_path, "r", newline="") as f:
             reader = csv.DictReader(f)

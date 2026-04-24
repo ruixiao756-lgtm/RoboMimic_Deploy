@@ -54,6 +54,26 @@ class MjVideoRecorder:
         self.frame_counter = 0
         self.current_video_path = ""
 
+        # 跟随相机配置
+        follow_cfg = recording_cfg.get("follow_camera", {})
+        self.follow_enabled = bool(follow_cfg.get("enabled", True))
+        track_body = str(follow_cfg.get("track_body", "pelvis"))
+        self.track_body_id = -1
+        self.cam = mujoco.MjvCamera()
+        if self.follow_enabled:
+            body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, track_body)
+            if body_id < 0:
+                print(f"[Recorder] follow_camera: body '{track_body}' not found, falling back to free camera.")
+                self.follow_enabled = False
+            else:
+                self.track_body_id = body_id
+                # 使用 FREE 类型，每帧手动更新 lookat 到 body 位置
+                # mjCAMERA_TRACKING 需要 mjv_updateCamera 驱动，Python Renderer 不自动调用
+                self.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+                self.cam.distance = float(follow_cfg.get("distance", 3.0))
+                self.cam.azimuth = float(follow_cfg.get("azimuth", 180.0))
+                self.cam.elevation = float(follow_cfg.get("elevation", -20.0))
+
         if self.enabled and not IMAGEIO_AVAILABLE:
             print("[Recorder] imageio is not available, video recording is disabled.")
             self.enabled = False
@@ -102,7 +122,12 @@ class MjVideoRecorder:
             return
 
         try:
-            self.renderer.update_scene(self.data)
+            if self.follow_enabled:
+                # 每帧更新 lookat 到 body 的世界坐标，确保相机始终锁定机器人
+                self.cam.lookat[:] = self.data.xpos[self.track_body_id]
+                self.renderer.update_scene(self.data, camera=self.cam)
+            else:
+                self.renderer.update_scene(self.data)
             frame = self.renderer.render()
             self.writer.append_data(frame)
         except Exception as exc:
@@ -314,7 +339,9 @@ if __name__ == "__main__":
             except ValueError as e:
                 print(str(e))
             
-            viewer.sync()
+            # 仅在控制步刷新 viewer，避免以 333 Hz 渲染拖慢实时率
+            if sim_counter % control_decimation == 0:
+                viewer.sync()
             time_until_next_step = m.opt.timestep - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
