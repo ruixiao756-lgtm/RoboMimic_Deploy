@@ -15,6 +15,7 @@ recording:
   follow_camera:
     enabled: true
     track_body: "pelvis"   # 跟随的 body 名称
+    relative_to_body_yaw: true  # true: azimuth 作为“相对机器人前向”的偏置角
     distance: 1.85          # 距 body 的距离（米）
-    azimuth: 135.0         # 水平角（度）：180=正面朝向机器人
+    azimuth: 135.0         # 水平偏置角（度），仅在 relative_to_body_yaw=true 时相对机器人前向
     elevation: -20.0       # 俯仰角（度）：负值=稍俯视

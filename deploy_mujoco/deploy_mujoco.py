@@ -60,6 +60,8 @@ class MjVideoRecorder:
         track_body = str(follow_cfg.get("track_body", "pelvis"))
         self.track_body_id = -1
         self.cam = mujoco.MjvCamera()
+        self.relative_to_body_yaw = bool(follow_cfg.get("relative_to_body_yaw", True))
+        self.azimuth_offset = float(follow_cfg.get("azimuth", 180.0))
         if self.follow_enabled:
             body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, track_body)
             if body_id < 0:
@@ -71,7 +73,7 @@ class MjVideoRecorder:
                 # mjCAMERA_TRACKING 需要 mjv_updateCamera 驱动，Python Renderer 不自动调用
                 self.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
                 self.cam.distance = float(follow_cfg.get("distance", 3.0))
-                self.cam.azimuth = float(follow_cfg.get("azimuth", 180.0))
+                self.cam.azimuth = self.azimuth_offset
                 self.cam.elevation = float(follow_cfg.get("elevation", -20.0))
 
         if self.enabled and not IMAGEIO_AVAILABLE:
@@ -125,6 +127,11 @@ class MjVideoRecorder:
             if self.follow_enabled:
                 # 每帧更新 lookat 到 body 的世界坐标，确保相机始终锁定机器人
                 self.cam.lookat[:] = self.data.xpos[self.track_body_id]
+                if self.relative_to_body_yaw:
+                    # xmat 为 body 在世界系的旋转矩阵（row-major）；取 body x 轴投影计算 yaw
+                    xmat = self.data.xmat[self.track_body_id]
+                    body_yaw_deg = np.degrees(np.arctan2(xmat[3], xmat[0]))
+                    self.cam.azimuth = body_yaw_deg + self.azimuth_offset
                 self.renderer.update_scene(self.data, camera=self.cam)
             else:
                 self.renderer.update_scene(self.data)
