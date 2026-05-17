@@ -54,8 +54,8 @@ class WbtDance(FSMState):
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_path = os.path.join(current_dir, "config", "WbtDance.yaml")  # save for hot reload
-        with open(self.config_path, "r") as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)
+        with open(self.config_path, "r", encoding='utf-8') as f:
+            config = yaml.load(f, Loader=yaml.FullLoader,)
 
         self.onnx_path = os.path.join(current_dir, "model", config["onnx_path"])
         self.mj2lab = np.array(config["mj2lab"], dtype=np.int32)
